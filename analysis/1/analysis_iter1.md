@@ -1,0 +1,49 @@
+# Analysis: Необходимо мигрировать на последнюю версию python и langchain
+
+**Issue:** #1 | **Complexity:** medium | **Iterations:** 1
+
+## Problem Statement
+The project currently specifies `requires-python = '>=3.12'` and pins its sole LangChain-ecosystem dependency — LangGraph — to `langgraph>=0.2` in `pyproject.toml` (under `[project.optional-dependencies] pipeline`). Python 3.13 is now the current stable release, and LangGraph has advanced to the 0.4.x line, introducing deprecations and API changes (notably `set_entry_point` → `add_edge(START, …)`, and `END`/`START` constant sourcing). The Docker base image (referenced in `Dockerfile` and `docker-publish.yml`) also pins a Python runtime that needs updating. The goal is to raise both to their current stable versions, fix any resulting deprecation warnings or breakages in `src/pipeline/graph.py`, `src/models/state.py`, and `src/pipeline/nodes.py`, and verify the full pipeline still passes.
+
+## Acceptance Criteria
+- [ ] `pyproject.toml` sets `requires-python = '>=3.13'` and `langgraph>=0.4` (or pinned to the current stable patch, e.g. `langgraph~=0.4.0`).
+- [ ] The `Dockerfile` base image uses `python:3.13-slim` (or equivalent official image) instead of any older tag.
+- [ ] `src/pipeline/graph.py` no longer uses the deprecated `builder.set_entry_point(...)` call; it uses `builder.add_edge(START, 'gather_context')` with `START` imported from `langgraph.graph` or `langgraph.constants`.
+- [ ] All `from langgraph.graph import StateGraph, END` (and `START` if added) imports resolve without deprecation warnings on the pinned version.
+- [ ] The full test suite (`pytest tests/`) passes on Python 3.13 with the updated dependencies.
+- [ ] The Docker image builds successfully (`docker build .`) and `python -m src.pipeline.main` runs end-to-end in the container.
+- [ ] No `DeprecationWarning` or `LangGraphDeprecationWarning` appears in CI logs related to graph-construction APIs.
+
+## Technical Approach
+1. Audit the actual installed LangGraph version and its changelog for breaking changes between 0.2 and the current stable (run `pip index versions langgraph` and review the 0.3 and 0.4 migration guides).
+2. Update `pyproject.toml`: set `requires-python = '>=3.13'`; change `langgraph>=0.2` to `langgraph>=0.4` (or a tighter pin like `langgraph~=0.4.0`).
+3. Update `src/pipeline/graph.py`: add `START` to the `from langgraph.graph import ...` import; replace `builder.set_entry_point('gather_context')` with `builder.add_edge(START, 'gather_context')`.
+4. Check whether `langgraph.graph.END` is still re-exported at the same path in the target version; if moved to `langgraph.constants`, update the import in `src/pipeline/graph.py`.
+5. Update the `Dockerfile` base image line to `python:3.13-slim` (or `python:3.13-alpine` if size is a concern); rebuild and verify all `pip install` steps succeed.
+6. Update `docker-publish.yml` and `analyze-issues.yml` CI files if they hard-code a Python version tag or run `python3.12` explicitly.
+7. Run `python -m pytest tests/ -W error::DeprecationWarning` locally on Python 3.13 to catch any stdlib removals or LangGraph API warnings; fix failures.
+8. Verify the compiled graph's `.invoke()` call signature in `src/pipeline/main.py` is unchanged (LangGraph 0.4 altered the optional `config` dict keys for checkpointing).
+9. Review `src/pipeline/nodes.py` for `asyncio.run()` calls inside synchronous node functions — in some LangGraph 0.4 execution modes the event loop is already running, which makes `asyncio.run()` raise; confirm or replace with `loop.run_until_complete()` / `asyncio.get_event_loop().run_until_complete()` if needed.
+
+## Dependencies
+- langgraph — upgrade from >=0.2 to >=0.4 (PyPI: `langgraph`)
+- Python 3.13 runtime — Docker base image and local dev environments
+- pydantic>=2.7 and pydantic-settings>=2.3 — confirm compatibility with Python 3.13 (both already support it)
+- python-gitlab>=4.6 — verify no Python 3.13 breakage
+- pytest>=8, pytest-asyncio>=0.23 — already compatible with 3.13, confirm asyncio_mode='auto' still works
+
+## Risks
+- **HIGH**: `asyncio.run()` inside synchronous LangGraph node functions (`gather_context_node`, `finalize_node`, `handle_failure_node` in `src/pipeline/nodes.py`) can raise `RuntimeError: This event loop is already running` if LangGraph 0.4 runs the graph in an async context. — *After upgrading, run the pipeline end-to-end and check for this error. If it occurs, replace `asyncio.run(coro)` with the `nest_asyncio` library (one-line patch) or refactor the affected nodes to be `async def` and let LangGraph drive the event loop natively.*
+- **MEDIUM**: `set_entry_point` was deprecated in LangGraph 0.3 and may be removed in 0.4+, causing an `AttributeError` at graph build time in `src/pipeline/graph.py:26`. — *Replace with `builder.add_edge(START, 'gather_context')` as described in the technical approach. Trivial one-line fix once the correct `START` import is confirmed.*
+- **MEDIUM**: Python 3.13 removed several deprecated stdlib modules (`aifc`, `audioop`, `chunk`, `cgi`, `cgitb`, `imghdr`, `mailcap`, `msilib`, `nis`, `nntplib`, `ossaudiodev`, `pipes`, `sndhdr`, `spwd`, `sunau`, `telnetlib`, `uu`, `xdrlib`). Transitive dependencies of langgraph or python-gitlab that relied on these will break. — *After updating `pyproject.toml`, run `pip install -e '.[pipeline,dev]'` on Python 3.13 and execute the full test suite. Any import errors will surface immediately and point to the offending transitive dependency, which will need a version bump.*
+- **LOW**: The issue title says 'langchain' but the codebase has no `langchain` dependency — only `langgraph`. If the intent includes adding or upgrading `langchain-core` or `langchain-community`, the scope expands significantly. — *Clarify with the issue author whether 'langchain' was used loosely to mean the LangChain ecosystem (i.e. langgraph) or if additional langchain packages should be introduced.*
+
+## Open Questions
+- Does 'langchain' in the issue title refer specifically to the `langchain` / `langchain-core` packages (which are not currently in `pyproject.toml`), or is it used loosely to mean the LangChain ecosystem, i.e. langgraph?
+- Should the version be pinned exactly (e.g. `langgraph==0.4.x`) for reproducibility, or kept as a lower-bound (`langgraph>=0.4`) and resolved at install time?
+- Is Python 3.14 (currently in beta as of June 2026) in scope, or is 3.13 (current stable) the target?
+- Does the team use `nest_asyncio` anywhere, or is the preferred fix for the `asyncio.run()` issue to refactor the node functions to be natively async?
+- Are there any downstream projects already consuming the built Docker image from the registry that need a coordinated rollout?
+
+---
+*Analyzed by `claude-sonnet-4-6` · Reviewed by `gpt-5.5`*
