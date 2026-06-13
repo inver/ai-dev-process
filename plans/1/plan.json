@@ -1,0 +1,257 @@
+{
+  "task_id": 1,
+  "iteration_count": 2,
+  "timestamp": "2026-06-13T17:44:19.456021+00:00",
+  "plan": {
+    "summary": "Migrate the project to Python 3.14 and LangGraph >=0.4 by first discovering actual file locations and asyncio.run call sites, then updating version pins, replacing deprecated LangGraph set_entry_point across all confirmed graph files, refactoring asyncio.run wrappers to async def across all confirmed node modules, updating the existing Dockerfile with a correct lock-file install, generating a pinned requirements-lock.txt, and auditing CI workflows at their discovered paths for stale Python version strings.",
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Repository discovery: confirm file locations and call-site scope",
+        "description": "Before editing any file, establish ground truth for every file the plan will touch. (a) Find the Dockerfile — confirm it exists at repo root or another location; record the path and current FROM line. (b) Find CI workflow files by searching for analyze-issues.yml and docker-publish.yml under all directories (root, .github/workflows/, .gitlab-ci.d/, etc.); record their actual paths. (c) Grep all three graph files for set_entry_point to confirm which ones need the START-edge fix and which entry-point node name each uses. (d) Grep all three node modules for 'asyncio.run' to record exact line numbers and the enclosing function name for each call site. (e) Grep all three node modules for all 'asyncio.' references to determine whether the asyncio import should be retained or removed after refactoring. Tasks T4-T6, T7-T9, T12, and T13 are conditional on the evidence gathered here.",
+        "files_to_modify": [],
+        "files_to_create": [],
+        "test_steps": [
+          "find . -name 'Dockerfile' -not -path './.git/*'",
+          "find . \\( -name 'analyze-issues.yml' -o -name 'docker-publish.yml' \\) -not -path './.git/*'",
+          "grep -n 'set_entry_point' src/pipeline/graph.py src/pipeline/dev_graph.py src/pipeline/plan_graph.py",
+          "grep -n 'asyncio\\.run' src/pipeline/nodes.py src/pipeline/dev_nodes.py src/pipeline/plan_nodes.py",
+          "grep -n 'asyncio\\.' src/pipeline/nodes.py src/pipeline/dev_nodes.py src/pipeline/plan_nodes.py"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "id": "T2",
+        "title": "Verify target LangGraph version and Python 3.14 wheel availability",
+        "description": "Run 'pip index versions langgraph' on a Python 3.14 interpreter to determine the current stable release; this value becomes the pinned floor in T3. Read the LangGraph changelog or GitHub releases for the migration guide from 0.2 to the target version — specifically confirm whether set_entry_point raises AttributeError (removed) or only emits a DeprecationWarning in the target, and note any ainvoke config-key changes. Verify that python:3.14-slim exists on Docker Hub. Verify that pydantic>=2.7, pydantic-settings>=2.3, python-gitlab>=4.6, and httpx>=0.27 each have Python 3.14 wheels by doing a dry-run install on a Python 3.14 interpreter. Record the resolved LangGraph version for the PR description.",
+        "files_to_modify": [],
+        "files_to_create": [],
+        "test_steps": [
+          "pip index versions langgraph",
+          "python3.14 -m pip install langgraph pydantic pydantic-settings python-gitlab httpx pytest pytest-asyncio pytest-mock respx --dry-run 2>&1 | head -50"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "id": "T3",
+        "title": "Update pyproject.toml: Python 3.14 and LangGraph version floor",
+        "description": "Set requires-python = '>=3.14'. Change langgraph>=0.2 to langgraph>=0.4 (or ~=X.Y.0 if the stable from T2 has a minor version warranting a tighter pin). Add pip-tools to the [project.optional-dependencies] dev section so the lock workflow is self-contained. Do not change floors for pydantic, pydantic-settings, python-gitlab, or httpx unless T2 found a wheel gap.",
+        "files_to_modify": [
+          "pyproject.toml"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "python3 -c \"import tomllib; d=tomllib.load(open('pyproject.toml','rb')); assert d['project']['requires-python']=='>=3.14', d['project']['requires-python']\"",
+          "python3 -c \"import tomllib; d=tomllib.load(open('pyproject.toml','rb')); deps=d['project']['optional-dependencies']['pipeline']; assert any('langgraph' in s for s in deps), deps\""
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "id": "T4",
+        "title": "Fix graph.py: replace set_entry_point with START edge",
+        "description": "Skip if T1 confirmed graph.py does not call set_entry_point. Otherwise add START to the 'from langgraph.graph import ...' line (adjust to langgraph.constants if T2 migration docs indicate START moved). Replace builder.set_entry_point('<node>') with builder.add_edge(START, '<node>') using the exact node name found in T1. Verify END is still exported from the same import path on the target version.",
+        "files_to_modify": [
+          "src/pipeline/graph.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'set_entry_point' src/pipeline/graph.py && echo FAIL || echo OK",
+          "python3 -W error::DeprecationWarning -c \"from src.pipeline.graph import build_graph; build_graph()\""
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "id": "T5",
+        "title": "Fix dev_graph.py: replace set_entry_point with START edge",
+        "description": "Skip if T1 confirmed dev_graph.py does not call set_entry_point. Otherwise apply the same START-import and builder.add_edge fix. Use the entry-point node name found in T1 for this file, which may differ from graph.py.",
+        "files_to_modify": [
+          "src/pipeline/dev_graph.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'set_entry_point' src/pipeline/dev_graph.py && echo FAIL || echo OK",
+          "python3 -W error::DeprecationWarning -c \"from src.pipeline.dev_graph import build_dev_graph; build_dev_graph()\""
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "id": "T6",
+        "title": "Fix plan_graph.py: replace set_entry_point with START edge",
+        "description": "Skip if T1 confirmed plan_graph.py does not call set_entry_point. Otherwise apply the same START-import and builder.add_edge fix using the entry-point node name from T1.",
+        "files_to_modify": [
+          "src/pipeline/plan_graph.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'set_entry_point' src/pipeline/plan_graph.py && echo FAIL || echo OK",
+          "python3 -W error::DeprecationWarning -c \"from src.pipeline.plan_graph import build_plan_graph; build_plan_graph()\""
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "id": "T7",
+        "title": "Refactor nodes.py: convert asyncio.run wrappers to async def",
+        "description": "For each asyncio.run() call site found in T1, convert only the enclosing function to async def and replace asyncio.run(expr) with await expr. The inner _write() and _gather() closures become plain await expressions inside the now-async parent. After all call sites are converted, check whether any remaining 'asyncio.' reference (asyncio.gather, asyncio.to_thread, etc.) still requires the import; remove 'import asyncio' if and only if no such reference remains. Do NOT retain the import on the grounds that test files need it — test files have their own import namespace.",
+        "files_to_modify": [
+          "src/pipeline/nodes.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'asyncio\\.run' src/pipeline/nodes.py && echo FAIL || echo OK",
+          "python3 -c \"import inspect, src.pipeline.nodes as n; assert inspect.iscoroutinefunction(n.gather_context_node)\"",
+          "python3 -c \"import inspect, src.pipeline.nodes as n; assert inspect.iscoroutinefunction(n.finalize_node)\"",
+          "python3 -c \"import inspect, src.pipeline.nodes as n; assert inspect.iscoroutinefunction(n.handle_failure_node)\"",
+          "python3 -c \"import inspect, src.pipeline.nodes as n; assert inspect.iscoroutinefunction(n._persist_analysis_snapshot)\"",
+          "python3 -c \"import inspect, src.pipeline.nodes as n; assert inspect.iscoroutinefunction(n._persist_review_snapshot)\""
+        ],
+        "estimated_minutes": 30
+      },
+      {
+        "id": "T8",
+        "title": "Refactor dev_nodes.py: convert asyncio.run wrappers to async def",
+        "description": "Skip if T1 found no asyncio.run calls in dev_nodes.py. Otherwise, for each call site recorded in T1 (use the exact line numbers and enclosing function names — do not assume), convert the enclosing function to async def and replace asyncio.run(expr) with await expr. Remove the asyncio import if no other asyncio.X reference remains after refactoring.",
+        "files_to_modify": [
+          "src/pipeline/dev_nodes.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'asyncio\\.run' src/pipeline/dev_nodes.py && echo FAIL || echo OK",
+          "python3 -c \"from src.pipeline.dev_nodes import gather_context_node, finalize_node, handle_failure_node; import inspect; assert all(inspect.iscoroutinefunction(f) for f in [gather_context_node, finalize_node, handle_failure_node])\""
+        ],
+        "estimated_minutes": 30
+      },
+      {
+        "id": "T9",
+        "title": "Refactor plan_nodes.py: convert asyncio.run wrappers to async def",
+        "description": "Skip if T1 found no asyncio.run calls in plan_nodes.py. Otherwise apply the same refactoring using exact line numbers and enclosing function names from T1. Remove the asyncio import if no other asyncio.X reference remains.",
+        "files_to_modify": [
+          "src/pipeline/plan_nodes.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep -n 'asyncio\\.run' src/pipeline/plan_nodes.py && echo FAIL || echo OK",
+          "python3 -c \"from src.pipeline.plan_nodes import gather_context_node, finalize_node, handle_failure_node; import inspect; assert all(inspect.iscoroutinefunction(f) for f in [gather_context_node, finalize_node, handle_failure_node])\""
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "id": "T10",
+        "title": "Update main.py: switch to asyncio.run(graph.ainvoke(...))",
+        "description": "In src/pipeline/main.py replace graph.invoke(initial_state) with asyncio.run(graph.ainvoke(initial_state)). In the except block the bare asyncio.run() cleanup calls remain safe since the event loop exited when ainvoke raised; consolidate them into a single asyncio.run(async_cleanup(...)) call. Confirm 'import asyncio' is present at the top of main.py since asyncio.run is now the sole event-loop entry point.",
+        "files_to_modify": [
+          "src/pipeline/main.py"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "python3 -c \"import pathlib; src=pathlib.Path('src/pipeline/main.py').read_text(); assert 'ainvoke' in src, 'ainvoke missing'\"",
+          "python3 -c \"import pathlib; src=pathlib.Path('src/pipeline/main.py').read_text(); assert 'graph.invoke(' not in src, 'sync invoke still present'\""
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "id": "T11",
+        "title": "Generate requirements-lock.txt on Python 3.14",
+        "description": "On a Python 3.14 interpreter with the updated pyproject.toml from T3 in place, run: pip install pip-tools && pip-compile --extra pipeline --extra dev -o requirements-lock.txt pyproject.toml. Commit the resulting requirements-lock.txt. This file must include all transitive dependencies so that subsequent pip install --no-deps steps in Docker and CI never need to resolve anything themselves. If the team prefers uv, run uv lock instead and use uv sync --frozen in Docker/CI; choose one tool and apply it consistently through T12 and T13.",
+        "files_to_modify": [],
+        "files_to_create": [
+          "requirements-lock.txt"
+        ],
+        "test_steps": [
+          "pip-compile --check --extra pipeline --extra dev -o requirements-lock.txt pyproject.toml"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "id": "T12",
+        "title": "Update Dockerfile: python:3.14-slim base and no-deps lock install",
+        "description": "Edit the Dockerfile at the path confirmed by T1. Change the FROM line to python:3.14-slim. Add a lock-file install step before the editable install: COPY requirements-lock.txt . followed by RUN pip install --no-deps -r requirements-lock.txt. Then install the project with RUN pip install --no-deps -e '.[pipeline]'. The --no-deps flag is required on BOTH install commands: without it on the editable install, pip re-resolves transitive dependencies and can pull in versions not in requirements-lock.txt, defeating reproducibility. Do not omit --no-deps on the editable install step.",
+        "files_to_modify": [
+          "Dockerfile"
+        ],
+        "files_to_create": [],
+        "test_steps": [
+          "grep 'FROM python' Dockerfile",
+          "docker build -t analyzer-test . --no-cache 2>&1 | tail -10",
+          "docker run --rm analyzer-test python3 -c \"import sys; assert sys.version_info >= (3,14), sys.version\""
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "id": "T13",
+        "title": "Update CI workflow files for Python 3.14 and add lock-drift check",
+        "description": "Using the actual CI file paths found in T1 (do not assume .github/workflows/), search for and replace all occurrences of python3.12, python3.13, python:3.12, python:3.13 with python3.14 and python:3.14-slim respectively. Skip this task entirely if T1 found no CI files locally and note that the update must be applied when the files become accessible. In the CI pipeline add a lock-drift check step: pip-compile --check --extra pipeline --extra dev -o requirements-lock.txt pyproject.toml (or uv lock --check if uv was chosen in T11) — this step fails the pipeline if pyproject.toml and requirements-lock.txt diverge.",
+        "files_to_modify": [],
+        "files_to_create": [],
+        "test_steps": [
+          "find . -name '*.yml' -not -path './.git/*' | xargs grep -ln 'python3\\.12\\|python3\\.13\\|python:3\\.12\\|python:3\\.13' && echo STALE_VERSION_FOUND && exit 1 || echo OK"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "id": "T14",
+        "title": "Run full test suite on Python 3.14 with deprecation warnings as errors",
+        "description": "Execute the complete test suite under Python 3.14 with -W error::DeprecationWarning. This flag catches stdlib removals (Python 3.14 removes modules deprecated since 3.11-3.13), LangGraph API warnings (which subclass DeprecationWarning), and pydantic v2 deprecations. Fix all failures before merging. Confirm that pytest-asyncio asyncio_mode='auto' (already in pyproject.toml) correctly discovers and runs async test functions in test_nodes.py, test_graph.py, and the dev/plan equivalents without additional markers.",
+        "files_to_modify": [],
+        "files_to_create": [],
+        "test_steps": [
+          "python3.14 -m pytest tests/ -W error::DeprecationWarning -v 2>&1 | tail -40"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "total_estimated_minutes": 235,
+    "test_plan": [
+      "grep -n 'set_entry_point' src/pipeline/graph.py src/pipeline/dev_graph.py src/pipeline/plan_graph.py && exit 1 || echo OK",
+      "python3 -W error::DeprecationWarning -c \"from src.pipeline.graph import build_graph; build_graph()\"",
+      "python3 -W error::DeprecationWarning -c \"from src.pipeline.dev_graph import build_dev_graph; build_dev_graph()\"",
+      "python3 -W error::DeprecationWarning -c \"from src.pipeline.plan_graph import build_plan_graph; build_plan_graph()\"",
+      "grep -n 'asyncio\\.run' src/pipeline/nodes.py src/pipeline/dev_nodes.py src/pipeline/plan_nodes.py && exit 1 || echo OK",
+      "python3.14 -m pytest tests/ -W error::DeprecationWarning -v",
+      "pip-compile --check --extra pipeline --extra dev -o requirements-lock.txt pyproject.toml",
+      "docker build -t analyzer-test . --no-cache",
+      "docker run --rm analyzer-test python3 -c \"import sys; assert sys.version_info >= (3,14)\"",
+      "find . -name '*.yml' -not -path './.git/*' | xargs grep -ln 'python3\\.12\\|python3\\.13\\|python:3\\.12\\|python:3\\.13' && exit 1 || echo OK"
+    ],
+    "assumptions": [
+      "T1 discovery is mandatory before any edit task begins; T4-T6 are skipped if T1 finds no set_entry_point in the respective file; T8-T9 are skipped if T1 finds no asyncio.run in the respective file",
+      "The Dockerfile exists at repo root (shown in file tree) and is updated in T12, not created — the acceptance criterion says 'update the Dockerfile base image'",
+      "CI workflow file paths are determined by T1; T13 files_to_modify is left empty as a placeholder and filled from T1 discovery before executing",
+      "LangGraph stable at time of work is >=0.4; exact version is determined in T2 before T3 is written",
+      "python:3.14-slim exists on Docker Hub; verified in T2 before T12 is written",
+      "requirements-lock.txt produced in T11 covers all transitive pipeline and dev dependencies so that pip install --no-deps -e '.[pipeline]' in Docker never needs to fetch additional packages",
+      "pytest-asyncio asyncio_mode='auto' already in pyproject.toml handles all async test functions without additional per-test markers",
+      "pydantic>=2.7, pydantic-settings>=2.3, python-gitlab>=4.6, httpx>=0.27 publish Python 3.14 wheels; if any require source builds, gcc and libffi-dev must be added to the Dockerfile build stage",
+      "analyze_node, revise_node, review_node, and other nodes with no asyncio.run() call sites remain synchronous; LangGraph ainvoke supports mixed sync/async node graphs",
+      "Developers on Python 3.12 or 3.13 must upgrade their local interpreter to 3.14 after this PR merges; the Docker image is the recommended fallback for running the pipeline in the interim"
+    ]
+  },
+  "review_history": [
+    {
+      "iteration": 1,
+      "approved": false,
+      "quality_score": 6,
+      "feedback": "The plan is broadly complete and shows good risk awareness around LangGraph API changes, async node execution, Python 3.14 dependency compatibility, Docker, CI, and lock-file reproducibility. However, it overreaches beyond the stated issue with unverified files and makes some technically questionable assumptions that could cause implementation churn or false-positive test steps. The biggest weakness is file accuracy: it claims the Dockerfile is missing and should be created, assumes GitHub workflow paths even while saying they may not exist locally, and adds dev/plan graph and node files that were not established in the issue. The lock-file/Docker install approach also needs tightening to ensure dependencies are not re-resolved after installing the lock.",
+      "concerns": [
+        "T10 contradicts the acceptance criterion, which says update the Dockerfile base image, by asserting the Dockerfile is missing and creating a new root Dockerfile without verifying the actual repo layout.",
+        "T12 lists .github/workflows/analyze-issues.yml and .github/workflows/docker-publish.yml as files to modify while also admitting the workflows may not be present locally; this is weak file accuracy.",
+        "T4, T5, T7, and T8 introduce dev_graph.py, plan_graph.py, dev_nodes.py, and plan_nodes.py work that may be correct, but the plan does not justify these files from the issue evidence or include an initial discovery task to confirm them.",
+        "The Dockerfile proposal installs requirements-lock.txt and then runs pip install -e '.[pipeline]' without --no-deps, which can re-resolve dependencies and partially defeat the lock-file goal.",
+        "Some test commands are likely brittle or invalid, such as pip install with --python-version without the required pip constraints and python -W error::LangGraphDeprecationWarning without importing or fully qualifying that warning class.",
+        "T6 says to keep import asyncio because it is needed for type annotations in tests, but imports in src/pipeline/nodes.py are not needed by tests unless the module itself still references asyncio; this rationale is suspicious."
+      ]
+    },
+    {
+      "iteration": 2,
+      "approved": true,
+      "quality_score": 8,
+      "feedback": "The plan is comprehensive and implementation-ready: it covers Python 3.14, LangGraph API migration, async node refactoring, Docker, lock-file reproducibility, CI version audit, and deprecation-warning testing. It also improves file accuracy by requiring discovery before edits. The main weaknesses are around a few brittle or non-failing test commands, some unresolved lock-tool details, and mild scope expansion into dev/plan graph modules that is sensible only if discovery confirms those files and call sites exist.",
+      "concerns": [
+        "Several grep-based test steps print FAIL but still exit successfully, so they would not actually fail CI or a local scripted run.",
+        "Some validation commands use python3 instead of python3.14, which could miss Python 3.14-only dependency or warning issues.",
+        "T13 leaves files_to_modify empty even though CI files are part of the acceptance criteria; the plan should explicitly say this list is populated after T1 discovery.",
+        "The LangGraph dependency target is still ambiguous: acceptance asks for the current stable release, but the plan allows broad floors like langgraph>=0.4 unless tightened after T2.",
+        "The pip-compile lock-drift command should be verified because pip-tools check behavior/version support can vary; an unsupported --check flag would break the proposed CI step."
+      ]
+    }
+  ]
+}
