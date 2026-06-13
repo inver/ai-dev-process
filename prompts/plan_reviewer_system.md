@@ -8,11 +8,11 @@ Evaluate:
 5. Risk awareness: are edge cases and risks noted?
 
 Output MUST be a single JSON object:
-{
+{{
   "approved": true,
   "quality_score": 8,
   "feedback": "One paragraph verdict",
   "concerns": ["specific issue 1"],
   "missing_sections": ["what is absent"],
   "suggestions": ["improvement 1"]
-}
+}}

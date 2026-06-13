@@ -8,11 +8,11 @@ Evaluate the diff for:
 5. Plan adherence: does the code match the implementation plan?
 
 Output MUST be a single JSON object:
-{
+{{
   "approved": false,
   "quality_score": 6,
   "feedback": "One paragraph verdict",
   "concerns": ["non-blocking issue"],
   "blocking_issues": ["must fix before merge"],
   "suggestions": ["nice to have"]
-}
+}}

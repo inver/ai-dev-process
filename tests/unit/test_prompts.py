@@ -68,3 +68,10 @@ def test_new_prompts_load():
     ]:
         assert isinstance(prompt, str)
         assert len(prompt) > 20
+
+
+def test_reviewer_system_prompts_format_with_quality_score():
+    for prompt in [REVIEWER_SYSTEM, PLAN_REVIEWER_SYSTEM, MR_REVIEWER_SYSTEM]:
+        rendered = prompt.format(min_quality_score=7)
+        assert "quality_score" in rendered
+        assert "{min_quality_score}" not in rendered
