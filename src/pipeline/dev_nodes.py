@@ -26,6 +26,26 @@ from src.pipeline.prompts import (
 logger = logging.getLogger(__name__)
 
 
+class GitCommandError(RuntimeError):
+    """Raised when a git subprocess fails with captured output."""
+
+
+def _run_git(args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        **kwargs,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        command = " ".join(args)
+        if detail:
+            raise GitCommandError(f"Git command failed ({result.returncode}): {command}\n{detail}")
+        raise GitCommandError(f"Git command failed ({result.returncode}): {command}")
+    return result
+
+
 def _clone_url(settings) -> str:
     if settings.platform == "github":
         token = settings.github_token.get_secret_value()
@@ -41,35 +61,43 @@ def _clone_repo(settings, dev_branch: str, existing_branch: bool = False) -> str
     if existing_branch:
         clone_cmd.extend(["-b", dev_branch])
     clone_cmd.extend([_clone_url(settings), tmp_dir])
-    subprocess.run(clone_cmd, check=True, capture_output=True)
-    subprocess.run(["git", "-C", tmp_dir, "config", "user.email", settings.git_user_email], check=True)
-    subprocess.run(["git", "-C", tmp_dir, "config", "user.name", settings.git_user_name], check=True)
+    _run_git(clone_cmd)
+    _run_git(["git", "-C", tmp_dir, "config", "user.email", settings.git_user_email])
+    _run_git(["git", "-C", tmp_dir, "config", "user.name", settings.git_user_name])
     if not existing_branch:
-        subprocess.run(["git", "-C", tmp_dir, "checkout", "-b", dev_branch], check=True, capture_output=True)
+        remote_branch = subprocess.run(
+            ["git", "-C", tmp_dir, "ls-remote", "--exit-code", "--heads", "origin", dev_branch],
+            capture_output=True,
+            text=True,
+        )
+        if remote_branch.returncode == 0:
+            _run_git(["git", "-C", tmp_dir, "fetch", "origin", dev_branch])
+            _run_git(["git", "-C", tmp_dir, "checkout", "-B", dev_branch, f"origin/{dev_branch}"])
+            logger.info("Reusing existing remote branch %s", dev_branch)
+        elif remote_branch.returncode == 2:
+            _run_git(["git", "-C", tmp_dir, "checkout", "-b", dev_branch])
+        else:
+            detail = (remote_branch.stderr or remote_branch.stdout or "").strip()
+            raise GitCommandError(
+                f"Could not inspect remote branch {dev_branch}: {detail}"
+            )
     logger.info("Cloned repo to %s on branch %s", tmp_dir, dev_branch)
     return tmp_dir
 
 
 def _commit_and_push(repo_dir: str, dev_branch: str, issue_iid: int) -> None:
-    subprocess.run(["git", "-C", repo_dir, "add", "-A"], check=True)
-    result = subprocess.run(
+    _run_git(["git", "-C", repo_dir, "add", "-A"])
+    result = _run_git(
         ["git", "-C", repo_dir, "diff", "--cached", "--name-only"],
-        capture_output=True,
-        text=True,
-        check=True,
     )
     if not result.stdout.strip():
         logger.warning("No changes to commit for issue #%s", issue_iid)
         return
-    subprocess.run(
+    _run_git(
         ["git", "-C", repo_dir, "commit", "-m", f"develop: implement #{issue_iid}"],
-        check=True,
-        capture_output=True,
     )
-    subprocess.run(
-        ["git", "-C", repo_dir, "push", "origin", dev_branch],
-        check=True,
-        capture_output=True,
+    _run_git(
+        ["git", "-C", repo_dir, "push", "-u", "origin", dev_branch],
     )
     logger.info("Committed and pushed branch %s for issue #%s", dev_branch, issue_iid)
 
