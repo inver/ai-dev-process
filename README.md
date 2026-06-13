@@ -1,6 +1,11 @@
 # AI Dev Process — Issue Analyzer
 
-Automatically analyzes GitLab issues using Claude Code (analyst) and OpenAI Codex (reviewer). When you add the `analysis_todo` label to an issue the pipeline reads the issue, generates a structured analysis, has it reviewed by GPT, and writes the approved result back to the issue description along with JSON/Markdown artifacts on a feature branch.
+Automatically analyzes GitHub and GitLab issues using Claude Code (analyst) and OpenAI Codex (reviewer). When you add the `analysis_todo` label to an issue the pipeline reads the issue, generates a structured analysis, has it reviewed by GPT, and writes the approved result back to the issue description along with JSON/Markdown artifacts on a feature branch.
+
+## Integration guides
+
+- [How to integrate with GitHub](docs/how-to-integrate-with-github.md)
+- [How to integrate with GitLab](docs/how-to-integrate-with-gitlab.md)
 
 ## How it works
 
