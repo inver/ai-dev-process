@@ -6,7 +6,10 @@ on:
 
 jobs:
   analyze:
-    if: github.event.label.name == 'analysis_todo'
+    if: |
+      github.event.label.name == 'analysis_todo' ||
+      github.event.label.name == 'plan_todo' ||
+      github.event.label.name == 'develop_todo'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: dev
@@ -48,6 +51,7 @@ jobs:
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           ISSUE_ID: ${{ github.event.issue.number }}
+          TRIGGER_TYPE: ${{ github.event.label.name == 'plan_todo' && 'plan' || github.event.label.name == 'develop_todo' && 'develop' || 'analysis' }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
           ANALYST_MODEL: claude-sonnet-4-6
@@ -59,6 +63,7 @@ jobs:
             -e GITHUB_OWNER \
             -e GITHUB_REPO \
             -e ISSUE_ID \
+            -e TRIGGER_TYPE \
             -e CLAUDE_CODE_OAUTH_TOKEN \
             -e CODEX_AUTH_JSON_B64 \
             -e ANALYST_MODEL \

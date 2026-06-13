@@ -24,3 +24,13 @@ class ForgeClient(Protocol):
     async def create_or_update_file(
             self, path: str, content: str, branch: str, commit_message: str
     ) -> None: ...
+
+    async def create_merge_request(
+            self,
+            source_branch: str,
+            target_branch: str,
+            title: str,
+            description: str,
+    ) -> dict: ...
+
+    async def get_merge_request_diff(self, mr_id: int) -> str: ...

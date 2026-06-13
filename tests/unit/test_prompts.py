@@ -3,6 +3,16 @@ from src.pipeline.prompts import (
     ANALYST_SYSTEM,
     ANALYST_INITIAL,
     ANALYST_REVISION,
+    DEVELOPER_INITIAL,
+    DEVELOPER_REVISION,
+    DEVELOPER_SYSTEM,
+    MR_REVIEWER_PROMPT,
+    MR_REVIEWER_SYSTEM,
+    PLANNER_INITIAL,
+    PLANNER_REVISION,
+    PLANNER_SYSTEM,
+    PLAN_REVIEWER_PROMPT,
+    PLAN_REVIEWER_SYSTEM,
     REVIEWER_SYSTEM,
     REVIEWER_PROMPT,
     format_comments,
@@ -41,3 +51,20 @@ def test_format_comments_multiple():
     assert len(lines) == 2
     assert "[alice at 2024-01-01]: Looks good" == lines[0]
     assert "[bob at 2024-01-02]: Please revise" == lines[1]
+
+
+def test_new_prompts_load():
+    for prompt in [
+        PLANNER_SYSTEM,
+        PLANNER_INITIAL,
+        PLANNER_REVISION,
+        PLAN_REVIEWER_SYSTEM,
+        PLAN_REVIEWER_PROMPT,
+        DEVELOPER_SYSTEM,
+        DEVELOPER_INITIAL,
+        DEVELOPER_REVISION,
+        MR_REVIEWER_SYSTEM,
+        MR_REVIEWER_PROMPT,
+    ]:
+        assert isinstance(prompt, str)
+        assert len(prompt) > 20

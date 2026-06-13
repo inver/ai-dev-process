@@ -190,3 +190,36 @@ class GitLabClient:
                     json=payload,
                 )
         self._raise_for_status(r)
+
+    async def create_merge_request(
+            self, source_branch: str, target_branch: str, title: str, description: str
+    ) -> dict:
+        logger.info("GitLab create merge request %r -> %r: %s", source_branch, target_branch, title)
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                f"{self._base}/merge_requests",
+                headers=self._headers,
+                json={
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "title": title,
+                    "description": description,
+                },
+            )
+        self._raise_for_status(r)
+        data = r.json()
+        return {"id": data["iid"], "url": data["web_url"]}
+
+    async def get_merge_request_diff(self, mr_id: int) -> str:
+        logger.debug("GitLab GET merge request diffs #%s", mr_id)
+        async with httpx.AsyncClient() as c:
+            r = await c.get(
+                f"{self._base}/merge_requests/{mr_id}/diffs",
+                headers=self._headers,
+            )
+        self._raise_for_status(r)
+        diffs = r.json()
+        return "\n".join(
+            f"--- a/{d['old_path']}\n+++ b/{d['new_path']}\n{d.get('diff', '')}"
+            for d in diffs
+        )

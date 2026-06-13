@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Claude Code (analyst) — headless CLI authenticated via OAuth token.
     claude_code_oauth_token: SecretStr = SecretStr("")
     claude_code_max_turns: int = 12
+    developer_max_turns: int = 20
 
     # GitLab (both services)
     gitlab_url: str = "https://gitlab.com"
@@ -45,7 +46,13 @@ class Settings(BaseSettings):
 
     # Loop tuning
     max_iterations: int = 3
+    plan_max_iterations: int = 3
+    develop_max_iterations: int = 3
     iteration_timeout_seconds: int = 600
+
+    # Git identity for automated development commits
+    git_user_email: str = "ai-dev-process@noreply"
+    git_user_name: str = "AI Dev Process"
 
     # Logging
     log_level: str = "INFO"

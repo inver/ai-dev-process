@@ -191,3 +191,30 @@ class GitHubClient:
                 payload["sha"] = existing.json()["sha"]
             r = await c.put(url, headers=self._headers, json=payload)
         self._raise_for_status(r)
+
+    async def create_merge_request(
+            self, source_branch: str, target_branch: str, title: str, description: str
+    ) -> dict:
+        logger.info("GitHub create pull request %r -> %r: %s", source_branch, target_branch, title)
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                f"{self._base}/pulls",
+                headers=self._headers,
+                json={
+                    "title": title,
+                    "body": description,
+                    "head": source_branch,
+                    "base": target_branch,
+                },
+            )
+        self._raise_for_status(r)
+        data = r.json()
+        return {"id": data["number"], "url": data["html_url"]}
+
+    async def get_merge_request_diff(self, mr_id: int) -> str:
+        logger.debug("GitHub GET pull request diff #%s", mr_id)
+        headers = {**self._headers, "Accept": "application/vnd.github.v3.diff"}
+        async with httpx.AsyncClient() as c:
+            r = await c.get(f"{self._base}/pulls/{mr_id}", headers=headers)
+        self._raise_for_status(r)
+        return r.text

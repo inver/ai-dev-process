@@ -214,7 +214,8 @@ def test_analyze_node_increments_iteration():
     from src.models.analysis import AnalysisOutput
     analysis = AnalysisOutput.model_validate_json(fake_output)
 
-    with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis) as mock_run:
+    with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis) as mock_run, \
+            patch("src.pipeline.nodes._persist_analysis_snapshot"):
         result = nodes.analyze_node(_base_state())
 
     mock_run.assert_called_once()
@@ -235,7 +236,8 @@ def test_review_node_sets_approved_and_appends_history():
         current_analysis='{"problem_statement": "Fix login"}',
     )
 
-    with patch("src.pipeline.nodes.run_codex_review", return_value=mock_result):
+    with patch("src.pipeline.nodes.run_codex_review", return_value=mock_result), \
+            patch("src.pipeline.nodes._persist_review_snapshot"):
         result = nodes.review_node(state)
 
     assert result["approved"] is True

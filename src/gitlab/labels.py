@@ -7,7 +7,25 @@ ANALYSIS_PROCESSED = "analysis_processed"
 ANALYSIS_FAILED = "analysis_failed"
 ANALYSIS_DONE = "analysis_done"
 
-ALL_PIPELINE_LABELS = {ANALYSIS_TODO, ANALYSIS_PROCESSED, ANALYSIS_FAILED}
+PLAN_TODO = "plan_todo"
+PLAN_PROCESSED = "plan_processed"
+PLAN_FAILED = "plan_failed"
+
+DEVELOP_TODO = "develop_todo"
+DEVELOP_PROCESSED = "develop_processed"
+DEVELOP_FAILED = "develop_failed"
+
+ALL_PIPELINE_LABELS = {
+    ANALYSIS_TODO,
+    ANALYSIS_PROCESSED,
+    ANALYSIS_FAILED,
+    PLAN_TODO,
+    PLAN_PROCESSED,
+    PLAN_FAILED,
+    DEVELOP_TODO,
+    DEVELOP_PROCESSED,
+    DEVELOP_FAILED,
+}
 
 
 def transition_labels(

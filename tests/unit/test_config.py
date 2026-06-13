@@ -23,3 +23,12 @@ def test_settings_defaults(monkeypatch):
     assert settings.iteration_timeout_seconds == 600
     assert settings.analyst_model == "claude-sonnet-4-6"
     assert settings.reviewer_model == "gpt-5.5"
+
+
+def test_new_settings_defaults():
+    settings = Settings()
+    assert settings.developer_max_turns == 20
+    assert settings.plan_max_iterations == 3
+    assert settings.develop_max_iterations == 3
+    assert settings.git_user_email == "ai-dev-process@noreply"
+    assert settings.git_user_name == "AI Dev Process"
