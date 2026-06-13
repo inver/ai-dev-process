@@ -9,6 +9,7 @@ jobs:
     if: github.event.label.name == 'analysis_todo'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    environment: dev
     concurrency:
       group: analyze-issue-${{ github.event.issue.number }}
       cancel-in-progress: false
