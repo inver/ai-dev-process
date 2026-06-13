@@ -66,7 +66,7 @@ def _run_graph(analyst_returns, reviewer_returns: list):
         "artifact_json_url": None, "artifact_md_url": None, "gitlab_comment_id": None,
     }
 
-    with patch("src.pipeline.nodes.build_gitlab_client", return_value=mock_client):
+    with patch("src.pipeline.nodes.build_forge_client", return_value=mock_client):
         with patch("src.pipeline.nodes.run_claude_analysis", return_value=analyst_returns):
             with patch("src.pipeline.nodes.run_codex_review") as mock_rv:
                 mock_rv.side_effect = lambda sys, usr, settings=None: next(review_iter)

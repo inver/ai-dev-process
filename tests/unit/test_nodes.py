@@ -50,8 +50,9 @@ def test_gather_context_node_populates_state():
     mock_client.branch_exists = AsyncMock(return_value=True)
     mock_client.create_branch = AsyncMock()
 
-    with patch("src.pipeline.nodes.build_gitlab_client", return_value=mock_client):
+    with patch("src.pipeline.nodes.build_forge_client", return_value=mock_client):
         with patch("src.pipeline.nodes.get_settings") as mock_settings:
+            mock_settings.return_value.platform = "gitlab"
             mock_settings.return_value.gitlab_url = "https://gitlab.com"
             mock_settings.return_value.gitlab_token.get_secret_value.return_value = "tk"
             mock_settings.return_value.gitlab_project_id = "123"
@@ -74,8 +75,9 @@ def test_gather_context_node_creates_missing_branch():
     mock_client.branch_exists = AsyncMock(return_value=False)
     mock_client.create_branch = AsyncMock()
 
-    with patch("src.pipeline.nodes.build_gitlab_client", return_value=mock_client):
+    with patch("src.pipeline.nodes.build_forge_client", return_value=mock_client):
         with patch("src.pipeline.nodes.get_settings") as mock_settings:
+            mock_settings.return_value.platform = "gitlab"
             mock_settings.return_value.gitlab_url = "https://gitlab.com"
             mock_settings.return_value.gitlab_token.get_secret_value.return_value = "tk"
             mock_settings.return_value.gitlab_project_id = "123"
@@ -107,7 +109,7 @@ def test_analyze_node_persists_iteration_snapshot():
     }))
 
     with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis), \
-         patch("src.pipeline.nodes.build_gitlab_client"), \
+         patch("src.pipeline.nodes.build_forge_client"), \
          patch("src.pipeline.nodes.get_settings") as mock_settings, \
          patch("src.pipeline.nodes.BranchManager") as MockBM:
         _settings_for_persist(mock_settings)
@@ -140,7 +142,7 @@ def test_revise_node_persists_iteration_snapshot():
     )
 
     with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis), \
-         patch("src.pipeline.nodes.build_gitlab_client"), \
+         patch("src.pipeline.nodes.build_forge_client"), \
          patch("src.pipeline.nodes.get_settings") as mock_settings, \
          patch("src.pipeline.nodes.BranchManager") as MockBM:
         _settings_for_persist(mock_settings)
@@ -163,7 +165,7 @@ def test_review_node_persists_review_snapshot():
     state = _base_state(iteration=1, current_analysis='{"problem_statement": "x"}')
 
     with patch("src.pipeline.nodes.run_codex_review", return_value=mock_result), \
-         patch("src.pipeline.nodes.build_gitlab_client"), \
+         patch("src.pipeline.nodes.build_forge_client"), \
          patch("src.pipeline.nodes.get_settings") as mock_settings, \
          patch("src.pipeline.nodes.BranchManager") as MockBM:
         _settings_for_persist(mock_settings)
@@ -185,7 +187,7 @@ def test_analyze_node_snapshot_failure_is_swallowed():
     }))
 
     with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis), \
-         patch("src.pipeline.nodes.build_gitlab_client"), \
+         patch("src.pipeline.nodes.build_forge_client"), \
          patch("src.pipeline.nodes.get_settings") as mock_settings, \
          patch("src.pipeline.nodes.BranchManager") as MockBM:
         _settings_for_persist(mock_settings)

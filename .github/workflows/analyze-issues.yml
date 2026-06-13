@@ -1,0 +1,54 @@
+name: Issue Analysis
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  analyze:
+    if: github.event.label.name == 'analysis_todo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: analyze-issue-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      issues: write
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js (for Claude Code CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        # Pin to a specific version in production (e.g., @1.x.x)
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install OpenAI Codex CLI
+        # Pin to a specific version in production (e.g., @0.x.x)
+        run: npm install -g @openai/codex
+
+      - name: Install Python dependencies
+        run: pip install -e ".[pipeline]"
+
+      - name: Run issue analysis
+        env:
+          PLATFORM: github
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          ISSUE_ID: ${{ github.event.issue.number }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          ANALYST_MODEL: claude-sonnet-4-6
+          REVIEWER_MODEL: gpt-5.5
+        run: python -m src.pipeline.main

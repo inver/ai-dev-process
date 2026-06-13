@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from src.config import get_settings
 from src.context.gatherer import ContextGatherer
+from src.forge.client import ForgeClient
 from src.gitlab.branches import BranchManager
 from src.gitlab.client import GitLabClient
 from src.gitlab.labels import ANALYSIS_PROCESSED, ANALYSIS_FAILED, ANALYSIS_TODO, apply_transition
@@ -22,13 +23,22 @@ from src.pipeline.prompts import (
 logger = logging.getLogger(__name__)
 
 
-def build_gitlab_client(settings=None) -> GitLabClient:
+def build_forge_client(settings=None) -> ForgeClient:
     s = settings or get_settings()
+    if s.platform == "github":
+        from src.github.client import GitHubClient
+        return GitHubClient(
+            token=s.github_token.get_secret_value(),
+            owner=s.github_owner,
+            repo=s.github_repo,
+        )
     return GitLabClient(s.gitlab_url, s.gitlab_token.get_secret_value(), s.gitlab_project_id)
 
 
-def _build_branch_manager(settings) -> BranchManager:
-    client = build_gitlab_client(settings)
+def _build_branch_manager(client, settings) -> BranchManager:
+    if settings.platform == "github":
+        web_url = f"https://github.com/{settings.github_owner}/{settings.github_repo}"
+        return BranchManager(client, web_url, blob_prefix="/blob")
     web_url = f"{settings.gitlab_url.rstrip('/')}/{settings.gitlab_project_path}"
     return BranchManager(client, web_url)
 
@@ -42,7 +52,8 @@ def _persist_analysis_snapshot(state: AnalysisState, result: AnalysisOutput, ite
     issue_iid = state["issue_iid"]
     branch = state["branch_name"]
     try:
-        bm = _build_branch_manager(get_settings())
+        s = get_settings()
+        bm = _build_branch_manager(build_forge_client(s), s)
         json_content = result.model_dump_json(indent=2)
         # Render against an iteration-corrected view of state without mutating it.
         md_content = _render_markdown({**state, "iteration": iteration}, {"analysis": result.model_dump()})
@@ -68,7 +79,8 @@ def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iterati
     issue_iid = state["issue_iid"]
     branch = state["branch_name"]
     try:
-        bm = _build_branch_manager(get_settings())
+        s = get_settings()
+        bm = _build_branch_manager(build_forge_client(s), s)
         json_content = review.model_dump_json(indent=2)
         msg = f"analysis: iteration {iteration} review for #{issue_iid}"
         json_path = f"analysis/{issue_iid}/review_iter{iteration}.json"
@@ -87,10 +99,9 @@ def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iterati
 
 def gather_context_node(state: AnalysisState) -> dict:
     settings = get_settings()
-    client = build_gitlab_client(settings)
+    client = build_forge_client(settings)
     gatherer = ContextGatherer(client)
-    web_url = f"{settings.gitlab_url.rstrip('/')}/{settings.gitlab_project_path}"
-    branch_manager = BranchManager(client, web_url)
+    branch_manager = _build_branch_manager(client, settings)
 
     async def _gather():
         context = await gatherer.gather(state["issue_iid"])
@@ -100,10 +111,18 @@ def gather_context_node(state: AnalysisState) -> dict:
         return context
 
     ctx = asyncio.run(_gather())
+
+    if settings.platform == "github":
+        project_id = f"{settings.github_owner}/{settings.github_repo}"
+        project_path = project_id
+    else:
+        project_id = settings.gitlab_project_id
+        project_path = settings.gitlab_project_path
+
     return {
         **ctx,
-        "project_id": settings.gitlab_project_id,
-        "project_path": settings.gitlab_project_path,
+        "project_id": project_id,
+        "project_path": project_path,
         "branch_name": f"feature/{state['issue_iid']}",
         "status": "analyzing",
         "approved": False,
@@ -221,9 +240,8 @@ def review_node(state: AnalysisState) -> dict:
 
 def finalize_node(state: AnalysisState) -> dict:
     settings = get_settings()
-    client = build_gitlab_client(settings)
-    web_url = f"{settings.gitlab_url.rstrip('/')}/{settings.gitlab_project_path}"
-    branch_manager = BranchManager(client, web_url)
+    client = build_forge_client(settings)
+    branch_manager = _build_branch_manager(client, settings)
 
     analysis = state["current_analysis_structured"]
     issue_iid = state["issue_iid"]
@@ -263,7 +281,7 @@ def finalize_node(state: AnalysisState) -> dict:
 
 def handle_failure_node(state: AnalysisState) -> dict:
     settings = get_settings()
-    client = build_gitlab_client(settings)
+    client = build_forge_client(settings)
     reason = state.get("failure_reason") or "Max iterations reached without reviewer approval"
 
     async def _fail():

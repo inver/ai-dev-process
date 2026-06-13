@@ -1,14 +1,15 @@
 import logging
 
-from src.gitlab.client import GitLabClient
+from src.forge.client import ForgeClient
 
 logger = logging.getLogger(__name__)
 
 
 class BranchManager:
-    def __init__(self, client: GitLabClient, project_web_url: str):
+    def __init__(self, client: ForgeClient, project_web_url: str, blob_prefix: str = "/-/blob"):
         self._client = client
         self._web_url = project_web_url.rstrip("/")
+        self._blob_prefix = blob_prefix
 
     async def ensure_feature_branch(self, issue_iid: int, ref: str = "main") -> str:
         branch = f"feature/{issue_iid}"
@@ -26,6 +27,6 @@ class BranchManager:
             path=file_path, content=content,
             branch=branch, commit_message=commit_message,
         )
-        url = f"{self._web_url}/-/blob/{branch}/{file_path}"
+        url = f"{self._web_url}{self._blob_prefix}/{branch}/{file_path}"
         logger.info("Artifact written: %s", url)
         return url

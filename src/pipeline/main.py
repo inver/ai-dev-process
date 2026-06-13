@@ -2,10 +2,10 @@ import sys
 import asyncio
 import logging
 from src.config import get_settings
-from src.gitlab.client import GitLabClient
 from src.gitlab.labels import ANALYSIS_FAILED, ANALYSIS_TODO, apply_transition
 from src.logging_config import setup_logging
 from src.pipeline.graph import build_graph
+from src.pipeline.nodes import build_forge_client
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,6 @@ def main() -> None:
         print("ERROR: ISSUE_ID environment variable not set", file=sys.stderr)
         sys.exit(1)
 
-    if not settings.gitlab_token.get_secret_value():
-        print(
-            "ERROR: GITLAB_TOKEN not set. The GitLab API returns 401 without a "
-            "valid token with 'api' scope. Define it as a CI/CD variable exposed "
-            "to this pipeline's ref.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     if not settings.claude_code_oauth_token.get_secret_value():
         print(
             "ERROR: CLAUDE_CODE_OAUTH_TOKEN not set. The analyst runs via the "
@@ -36,11 +27,23 @@ def main() -> None:
         )
         sys.exit(1)
 
+    if settings.platform == "github":
+        if not settings.github_token.get_secret_value():
+            print("ERROR: GITHUB_TOKEN not set for platform=github", file=sys.stderr)
+            sys.exit(1)
+        if not settings.github_owner or not settings.github_repo:
+            print("ERROR: GITHUB_OWNER and GITHUB_REPO must be set for platform=github", file=sys.stderr)
+            sys.exit(1)
+    else:
+        if not settings.gitlab_token.get_secret_value():
+            print("ERROR: GITLAB_TOKEN not set for platform=gitlab", file=sys.stderr)
+            sys.exit(1)
+
     issue_iid = settings.issue_id
     initial_state = {
         "issue_iid": issue_iid,
-        "project_id": settings.gitlab_project_id,
-        "project_path": settings.gitlab_project_path,
+        "project_id": settings.gitlab_project_id if settings.platform == "gitlab" else f"{settings.github_owner}/{settings.github_repo}",
+        "project_path": settings.gitlab_project_path if settings.platform == "gitlab" else f"{settings.github_owner}/{settings.github_repo}",
         "trigger_type": settings.trigger_type,
         "issue_title": "", "issue_description": "", "issue_labels": [],
         "issue_comments": [], "readme_content": "", "file_tree": "",
@@ -55,9 +58,9 @@ def main() -> None:
     }
 
     logger.info(
-        "Starting analysis pipeline for issue #%s (trigger=%s, max_iterations=%s, "
+        "Starting analysis pipeline for issue #%s (platform=%s, trigger=%s, max_iterations=%s, "
         "analyst=%s, reviewer=%s)",
-        issue_iid, settings.trigger_type, settings.max_iterations,
+        issue_iid, settings.platform, settings.trigger_type, settings.max_iterations,
         settings.analyst_model, settings.reviewer_model,
     )
 
@@ -72,11 +75,7 @@ def main() -> None:
     except Exception as exc:
         logger.exception("Unhandled pipeline error for issue #%s", issue_iid)
         print(f"Unhandled pipeline error: {exc}", file=sys.stderr)
-        client = GitLabClient(
-            settings.gitlab_url,
-            settings.gitlab_token.get_secret_value(),
-            settings.gitlab_project_id,
-        )
+        client = build_forge_client(settings)
         asyncio.run(apply_transition(
             client, issue_iid,
             add=[ANALYSIS_FAILED], remove=[ANALYSIS_TODO],

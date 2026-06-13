@@ -19,7 +19,7 @@ def transition_labels(
 
 
 async def apply_transition(
-    client,  # GitLabClient
+    client,
     issue_iid: int,
     add: list[str],
     remove: list[str],

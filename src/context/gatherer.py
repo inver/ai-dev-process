@@ -1,5 +1,5 @@
 import re
-from src.gitlab.client import GitLabClient
+from src.forge.client import ForgeClient
 
 EXCLUDED_PATHS = re.compile(r"(^\.git/|__pycache__|\.pyc$|\.egg-info)")
 
@@ -17,7 +17,7 @@ def build_file_tree_string(blobs: list[dict]) -> str:
 
 
 class ContextGatherer:
-    def __init__(self, client: GitLabClient):
+    def __init__(self, client: ForgeClient):
         self._client = client
 
     async def gather(self, issue_iid: int) -> dict:
@@ -35,7 +35,7 @@ class ContextGatherer:
         }
 
 
-async def _gather_all(client: GitLabClient, issue_iid: int):
+async def _gather_all(client: ForgeClient, issue_iid: int):
     import asyncio
     issue_coro = client.get_issue(issue_iid)
     comments_coro = client.get_issue_comments(issue_iid)

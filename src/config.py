@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,12 +24,20 @@ class Settings(BaseSettings):
 
     # GitLab (both services)
     gitlab_url: str = "https://gitlab.com"
-    gitlab_token: SecretStr
-    gitlab_project_id: str
+    gitlab_token: SecretStr = SecretStr("")
+    gitlab_project_id: str = ""
     gitlab_project_path: str = ""
 
     # Pipeline trigger (webhook service only)
     gitlab_pipeline_trigger_token: SecretStr = SecretStr("")
+
+    # Platform selection: "gitlab" (default) or "github"
+    platform: Literal["gitlab", "github"] = "gitlab"
+
+    # GitHub (used when platform == "github")
+    github_token: SecretStr = SecretStr("")
+    github_owner: str = ""
+    github_repo: str = ""
 
     # Analysis job (injected by CI trigger)
     issue_id: int = 0
