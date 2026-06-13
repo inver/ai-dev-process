@@ -56,16 +56,26 @@ gh label create analysis_failed    --color d73a4a --description "Analysis failed
 gh label create analysis_done      --color 0e8a16 --description "Analysis approved"
 ```
 
-## Step 2 — Configure repository secrets
+## Step 2 — Create the `dev` environment and configure secrets
 
-Go to **Settings → Secrets and variables → Actions → New repository secret**:
+The `analyze-issues.yml` workflow uses a GitHub Actions **environment** named `dev` to scope secrets to this specific job.
 
-| Secret name               | Value                                                        |
-|---------------------------|--------------------------------------------------------------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token. Generate with `claude setup-token`. |
-| `CODEX_API_KEY`           | OpenAI API key for the Codex reviewer.                       |
+### Create the environment
+
+Go to **Settings → Environments → New environment**, name it `dev`, and click **Configure environment**.
+
+### Add the required secrets
+
+Under **Environment secrets → Add secret**, add:
+
+| Secret name               | Value                                                                     |
+|---------------------------|---------------------------------------------------------------------------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token. Generate with `claude setup-token`.              |
+| `CODEX_AUTH_JSON_B64`     | Base64-encoded `~/.codex/auth.json`. Generate with: `base64 -w0 ~/.codex/auth.json` |
 
 The built-in `GITHUB_TOKEN` (auto-provided by Actions) handles all GitHub API calls — no extra token needed.
+
+> **Troubleshooting:** If the analysis job fails immediately with `Secret X is not configured`, the secret is missing from the `dev` environment (not from repository secrets — environment secrets are separate). Re-check **Settings → Environments → dev → Secrets**.
 
 ## Step 3 — Enable the workflows
 
@@ -84,7 +94,9 @@ your profile or org page.
 
 Triggers when an issue receives a label, filters to `analysis_todo`, and pulls the image built above.
 
-No configuration needed beyond the secrets from Step 2.
+No configuration needed beyond the secrets from Step 2. The job runs in the `dev` environment so it can access environment-scoped secrets.
+
+The workflow includes a **pre-flight validation step** that checks for required secrets before pulling the Docker image. If a secret is missing it fails immediately with a clear `::error::` annotation pointing to the exact setting to update.
 
 ## Step 4 — Grant Actions write permissions (organizations only)
 
@@ -123,8 +135,8 @@ All variables are passed to the Docker container by `analyze-issues.yml`. Overri
 | `GITHUB_OWNER`            | `github.repository_owner`      | Repository owner (user or org)                          |
 | `GITHUB_REPO`             | `github.event.repository.name` | Repository name                                         |
 | `ISSUE_ID`                | `github.event.issue.number`    | Issue number being analyzed                             |
-| `CLAUDE_CODE_OAUTH_TOKEN` | secret                         | Claude Code CLI authentication                          |
-| `CODEX_API_KEY`           | secret                         | OpenAI API key for the reviewer                         |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `dev` environment secret       | Claude Code CLI authentication                          |
+| `CODEX_AUTH_JSON_B64`     | `dev` environment secret       | Base64-encoded Codex auth for the reviewer              |
 | `ANALYST_MODEL`           | `claude-sonnet-4-6`            | Claude model for analysis                               |
 | `REVIEWER_MODEL`          | `gpt-5.5`                      | OpenAI model for review                                 |
 

@@ -19,6 +19,21 @@ jobs:
       packages: read
 
     steps:
+      - name: Validate required secrets
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+        run: |
+          missing=()
+          [[ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]] && missing+=(CLAUDE_CODE_OAUTH_TOKEN)
+          [[ -z "$CODEX_AUTH_JSON_B64" ]] && missing+=(CODEX_AUTH_JSON_B64)
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            for s in "${missing[@]}"; do
+              echo "::error::Secret $s is not configured. Add it to Settings → Environments → dev → Secrets."
+            done
+            exit 1
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
