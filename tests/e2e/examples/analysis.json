@@ -1,0 +1,58 @@
+{
+  "problem_statement": "The project currently targets Python 3.12 (pinned in both Dockerfiles and pyproject.toml) and LangGraph >=0.2. The issue requests migration to the latest stable Python (3.13) and latest LangGraph/LangChain release. Note: the project has no direct `langchain` dependency — only `langgraph>=0.2` — so 'langchain' in the issue title refers to the LangGraph ecosystem upgrade.",
+  "acceptance_criteria": [
+    "Dockerfile and Dockerfile.webhook use `python:3.13-slim` as base image",
+    "`pyproject.toml` sets `requires-python = '>=3.13'` and `langgraph>=0.3` (or current latest stable)",
+    "All existing unit, integration, and e2e tests pass under Python 3.13",
+    "CI pipeline (`build-analyzer-image` job) builds successfully with the new base image",
+    "Deprecated LangGraph 0.2 API `set_entry_point()` in `src/pipeline/graph.py` is replaced with `add_edge(START, 'gather_context')` per LangGraph 0.3+ idiom",
+    "`from langgraph.graph import START` is imported alongside `END` in `src/pipeline/graph.py`"
+  ],
+  "technical_approach": [
+    "1. Audit current LangGraph changelog for breaking changes from 0.2 to latest: focus on `StateGraph` API, checkpoint/interrupt mechanics, and any import path renames",
+    "2. Update `pyproject.toml`: set `requires-python = '>=3.13'` and bump `langgraph` lower-bound to the latest stable (e.g. `>=0.3`); add `langchain-core` only if LangGraph now requires it as an explicit peer",
+    "3. Update `Dockerfile` line 1: `FROM python:3.12-slim` → `FROM python:3.13-slim`",
+    "4. Update `Dockerfile.webhook` line 2: `FROM python:3.12-slim` → `FROM python:3.13-slim`",
+    "5. Fix deprecated API in `src/pipeline/graph.py:1`: add `START` to the `langgraph.graph` import",
+    "6. Replace `builder.set_entry_point('gather_context')` at `src/pipeline/graph.py:24` with `builder.add_edge(START, 'gather_context')`",
+    "7. Verify `asyncio.run()` usage in sync LangGraph nodes (`src/pipeline/nodes.py:57,79,102,249,270`) is still supported — Python 3.13 tightened event-loop semantics, and LangGraph 0.3 may prefer async nodes natively",
+    "8. Run full test suite: `pytest tests/unit tests/integration` in a Python 3.13 virtualenv with updated deps",
+    "9. Build Docker image locally and smoke-test pipeline entrypoint (`python -m src.pipeline.main`) with a mock issue"
+  ],
+  "dependencies": [
+    "langgraph (PyPI) — direct runtime dep; confirm latest stable tag before pinning",
+    "langchain-core (PyPI) — indirect dep through langgraph; may need explicit version floor if LangGraph drops its re-export",
+    "pydantic>=2.7 — Python 3.13 compatibility confirmed in Pydantic 2.7+; no change expected",
+    "fastapi>=0.111 — verify 3.13 wheel availability; FastAPI 0.115+ ships 3.13 wheels",
+    "python:3.13-slim Docker image — must be available on Docker Hub at build time in GitLab CI"
+  ],
+  "risks": [
+    {
+      "description": "`asyncio.run()` called inside synchronous LangGraph node functions (nodes.py:57, 79, 102, 249, 270) may conflict with LangGraph 0.3's internal event loop if the graph runner is itself async",
+      "mitigation": "Convert node functions to `async def` and use `await` directly, or verify LangGraph 0.3 still supports sync nodes with nested `asyncio.run()` calls before merging",
+      "severity": "high"
+    },
+    {
+      "description": "LangGraph 0.3+ may rename or restructure internal modules (e.g. checkpoint, pregel) causing import errors not caught by the current test suite",
+      "mitigation": "Run `pip install langgraph==<target>` in a fresh venv and do a full import check (`python -c 'from langgraph.graph import StateGraph, START, END'`) before updating the constraint",
+      "severity": "medium"
+    },
+    {
+      "description": "Python 3.13 removes `typing.get_type_hints` quirks and tightens `__slots__` on dataclasses; Pydantic models in `src/models/` could fail validation silently or loudly",
+      "mitigation": "Run the unit tests (`tests/unit/test_models.py`) explicitly under Python 3.13 and compare Pydantic model serialization output",
+      "severity": "low"
+    },
+    {
+      "description": "`python:3.13-slim` base image may lack a pre-built wheel for one of the native-extension deps (e.g. `uvicorn[standard]`), causing build-time failures in CI",
+      "mitigation": "Test `docker build` locally before pushing; pin to `python:3.13.x-slim` with an explicit patch version for reproducibility",
+      "severity": "low"
+    }
+  ],
+  "estimated_complexity": "medium",
+  "open_questions": [
+    "Is the intended LangGraph target the latest stable release at migration time, or a specific version (e.g. 0.3.x)? The issue says 'latest' but CI images should be pinned.",
+    "Should `langchain` (langchain-core / langchain) be added as an explicit direct dependency, or is `langgraph` alone sufficient? The issue title says 'langchain' but the codebase only uses langgraph.",
+    "Do the LangGraph node functions need to be converted to `async def` as part of this migration, or is that out of scope for this issue?",
+    "Is Python 3.14 (currently in beta as of June 2026) in scope, or is Python 3.13 the target latest stable?"
+  ]
+}

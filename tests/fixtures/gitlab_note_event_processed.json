@@ -1,0 +1,11 @@
+{
+  "object_kind": "note",
+  "user": {"username": "bob"},
+  "object_attributes": {
+    "noteable_type": "Issue",
+    "note": "Please re-analyze with this context.",
+    "system": false
+  },
+  "issue": {"iid": 42},
+  "labels": [{"id": 2, "title": "analysis_processed"}]
+}

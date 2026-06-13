@@ -1,0 +1,12 @@
+{
+  "object_kind": "issue",
+  "user": {"username": "alice"},
+  "object_attributes": {"iid": 42, "state": "opened"},
+  "changes": {
+    "labels": {
+      "previous": [],
+      "current": [{"id": 1, "title": "analysis_todo", "color": "#000"}]
+    }
+  },
+  "labels": [{"id": 1, "title": "analysis_todo"}]
+}

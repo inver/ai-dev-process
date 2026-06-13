@@ -1,0 +1,43 @@
+import pytest
+from src.pipeline.prompts import (
+    ANALYST_SYSTEM,
+    ANALYST_INITIAL,
+    ANALYST_REVISION,
+    REVIEWER_SYSTEM,
+    REVIEWER_PROMPT,
+    format_comments,
+)
+
+
+@pytest.mark.parametrize("text,name", [
+    (ANALYST_SYSTEM, "ANALYST_SYSTEM"),
+    (ANALYST_INITIAL, "ANALYST_INITIAL"),
+    (ANALYST_REVISION, "ANALYST_REVISION"),
+    (REVIEWER_SYSTEM, "REVIEWER_SYSTEM"),
+    (REVIEWER_PROMPT, "REVIEWER_PROMPT"),
+])
+def test_prompt_loaded_and_non_empty(text, name):
+    assert isinstance(text, str), f"{name} should be a str"
+    assert len(text.strip()) > 0, f"{name} must not be empty"
+
+
+def test_format_comments_empty():
+    assert format_comments([]) == "(no comments)"
+
+
+def test_format_comments_single():
+    comments = [{"author": "alice", "created_at": "2024-01-01", "body": "LGTM"}]
+    result = format_comments(comments)
+    assert result == "[alice at 2024-01-01]: LGTM"
+
+
+def test_format_comments_multiple():
+    comments = [
+        {"author": "alice", "created_at": "2024-01-01", "body": "Looks good"},
+        {"author": "bob", "created_at": "2024-01-02", "body": "Please revise"},
+    ]
+    result = format_comments(comments)
+    lines = result.splitlines()
+    assert len(lines) == 2
+    assert "[alice at 2024-01-01]: Looks good" == lines[0]
+    assert "[bob at 2024-01-02]: Please revise" == lines[1]

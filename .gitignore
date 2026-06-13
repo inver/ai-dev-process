@@ -1,0 +1,7 @@
+.idea
+.venv
+__pycache__/
+
+debug.sh
+test_local.sh
+docs/superpowers
