@@ -53,3 +53,18 @@ def test_run_claude_dev_uses_configured_max_turns():
     command = mock_run.call_args.args[0]
     max_turns_index = command.index("--max-turns")
     assert command[max_turns_index + 1] == "60"
+
+
+def test_run_claude_dev_uses_developer_timeout():
+    dev_data = {
+        "implementation_summary": "Added login",
+        "files_modified": [],
+        "files_created": [],
+        "tests_run": True,
+        "test_summary": "All pass",
+        "open_questions": [],
+    }
+    mock_proc = MagicMock(returncode=0, stdout=_make_payload(dev_data), stderr="")
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        run_claude_dev("system", "user", repo_dir="/tmp/repo")
+    assert mock_run.call_args.kwargs["timeout"] == 1800

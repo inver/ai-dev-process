@@ -28,6 +28,7 @@ def test_settings_defaults(monkeypatch):
 def test_new_settings_defaults():
     settings = Settings()
     assert settings.developer_max_turns == 60
+    assert settings.developer_timeout_seconds == 1800
     assert settings.plan_max_iterations == 3
     assert settings.develop_max_iterations == 3
     assert settings.git_user_email == "ai-dev-process@noreply"

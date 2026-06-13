@@ -45,9 +45,10 @@ def run_claude_dev(
         env.pop("ANTHROPIC_API_KEY", None)
 
     logger.info(
-        "Invoking Claude Code developer: model=%s max_turns=%s tools=[%s] cwd=%s",
+        "Invoking Claude Code developer: model=%s max_turns=%s timeout=%ss tools=[%s] cwd=%s",
         s.analyst_model,
         s.developer_max_turns,
+        s.developer_timeout_seconds,
         DEVELOPER_ALLOWED_TOOLS,
         repo_dir,
     )
@@ -60,13 +61,13 @@ def run_claude_dev(
             text=True,
             env=env,
             cwd=repo_dir,
-            timeout=s.iteration_timeout_seconds,
+            timeout=s.developer_timeout_seconds,
         )
     except FileNotFoundError as exc:
         raise ClaudeCodeError("Claude Code CLI not found on PATH") from exc
     except subprocess.TimeoutExpired as exc:
         raise ClaudeCodeError(
-            f"Claude Code developer timed out after {s.iteration_timeout_seconds}s"
+            f"Claude Code developer timed out after {s.developer_timeout_seconds}s"
         ) from exc
 
     logger.info(

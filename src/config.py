@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     plan_max_iterations: int = 3
     develop_max_iterations: int = 3
     iteration_timeout_seconds: int = 600
+    developer_timeout_seconds: int = 1800
 
     # Git identity for automated development commits
     git_user_email: str = "ai-dev-process@noreply"
