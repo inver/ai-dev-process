@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Claude Code (analyst) — headless CLI authenticated via OAuth token.
     claude_code_oauth_token: SecretStr = SecretStr("")
     claude_code_max_turns: int = 12
-    developer_max_turns: int = 20
+    developer_max_turns: int = 60
 
     # GitLab (both services)
     gitlab_url: str = "https://gitlab.com"
