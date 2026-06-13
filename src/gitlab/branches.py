@@ -21,7 +21,7 @@ class BranchManager:
         return branch
 
     async def write_artifact(
-        self, branch: str, file_path: str, content: str, commit_message: str
+            self, branch: str, file_path: str, content: str, commit_message: str
     ) -> str:
         await self._client.create_or_update_file(
             path=file_path, content=content,

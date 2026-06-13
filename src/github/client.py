@@ -1,8 +1,7 @@
 import base64
+import httpx
 import logging
 import urllib.parse
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +172,7 @@ class GitHubClient:
         self._raise_for_status(r)
 
     async def create_or_update_file(
-        self, path: str, content: str, branch: str, commit_message: str
+            self, path: str, content: str, branch: str, commit_message: str
     ) -> None:
         encoded_content = base64.b64encode(content.encode()).decode()
         url = f"{self._base}/contents/{urllib.parse.quote(path, safe='/')}"

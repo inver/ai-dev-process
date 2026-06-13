@@ -11,7 +11,7 @@ ALL_PIPELINE_LABELS = {ANALYSIS_TODO, ANALYSIS_PROCESSED, ANALYSIS_FAILED}
 
 
 def transition_labels(
-    current: list[str], add: list[str], remove: list[str]
+        current: list[str], add: list[str], remove: list[str]
 ) -> list[str]:
     result = set(current) - set(remove)
     result |= set(add)
@@ -19,10 +19,10 @@ def transition_labels(
 
 
 async def apply_transition(
-    client,
-    issue_iid: int,
-    add: list[str],
-    remove: list[str],
+        client,
+        issue_iid: int,
+        add: list[str],
+        remove: list[str],
 ) -> None:
     issue = await client.get_issue(issue_iid)
     new_labels = transition_labels(issue["labels"], add=add, remove=remove)

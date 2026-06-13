@@ -7,7 +7,7 @@ class AnalysisState(TypedDict):
     issue_iid: int
     project_id: str
     project_path: str
-    trigger_type: str          # "analysis" or "reanalysis"
+    trigger_type: str  # "analysis" or "reanalysis"
     issue_title: str
     issue_description: str
     issue_comments: list[dict]
@@ -22,7 +22,7 @@ class AnalysisState(TypedDict):
     # Updated by analyze/revise nodes
     iteration: int
     iteration_start_time: str  # ISO 8601 string (JSON-serializable)
-    current_analysis: str      # JSON string of AnalysisOutput
+    current_analysis: str  # JSON string of AnalysisOutput
     current_analysis_structured: dict
 
     # Updated by review node
@@ -32,7 +32,7 @@ class AnalysisState(TypedDict):
 
     # Terminal state
     approved: bool
-    status: str                # "analyzing" | "reviewing" | "approved" | "failed"
+    status: str  # "analyzing" | "reviewing" | "approved" | "failed"
     failure_reason: Optional[str]
 
     # Set by finalize node

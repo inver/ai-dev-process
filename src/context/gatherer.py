@@ -1,4 +1,5 @@
 import re
+
 from src.forge.client import ForgeClient
 
 EXCLUDED_PATHS = re.compile(r"(^\.git/|__pycache__|\.pyc$|\.egg-info)")

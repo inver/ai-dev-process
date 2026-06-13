@@ -1,6 +1,7 @@
-import sys
 import asyncio
 import logging
+import sys
+
 from src.config import get_settings
 from src.gitlab.labels import ANALYSIS_FAILED, ANALYSIS_TODO, apply_transition
 from src.logging_config import setup_logging

@@ -12,9 +12,9 @@ from src.gitlab.client import GitLabClient
 from src.gitlab.labels import ANALYSIS_PROCESSED, ANALYSIS_FAILED, ANALYSIS_TODO, apply_transition
 from src.models.analysis import AnalysisOutput
 from src.models.review import ReviewResult
+from src.models.state import AnalysisState
 from src.pipeline.claude_code import run_claude_analysis
 from src.pipeline.codex import run_codex_review
-from src.models.state import AnalysisState
 from src.pipeline.prompts import (
     ANALYST_SYSTEM, ANALYST_INITIAL, ANALYST_REVISION,
     REVIEWER_SYSTEM, REVIEWER_PROMPT, format_comments,
@@ -262,8 +262,10 @@ def finalize_node(state: AnalysisState) -> dict:
 
     async def _write():
         await branch_manager.ensure_feature_branch(issue_iid)
-        json_url = await branch_manager.write_artifact(branch, json_path, json_content, f"analysis: JSON for #{issue_iid}")
-        md_url = await branch_manager.write_artifact(branch, md_path, md_content, f"analysis: Markdown for #{issue_iid}")
+        json_url = await branch_manager.write_artifact(branch, json_path, json_content,
+                                                       f"analysis: JSON for #{issue_iid}")
+        md_url = await branch_manager.write_artifact(branch, md_path, md_content,
+                                                     f"analysis: Markdown for #{issue_iid}")
         await apply_transition(client, issue_iid, add=[ANALYSIS_PROCESSED], remove=[ANALYSIS_TODO])
         await client.update_issue_description(issue_iid, md_content)
         comment_body = _build_comment(branch, json_url, md_url, state)
@@ -299,7 +301,7 @@ def handle_failure_node(state: AnalysisState) -> dict:
 def _render_markdown(state: dict, artifact: dict) -> str:
     a = artifact["analysis"]
     criteria = "\n".join(f"- [ ] {c}" for c in a.get("acceptance_criteria", []))
-    approach = "\n".join(f"{i+1}. {s}" for i, s in enumerate(a.get("technical_approach", [])))
+    approach = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(a.get("technical_approach", [])))
     risks = "\n".join(
         f"- **{r['severity'].upper()}**: {r['description']} — *{r['mitigation']}*"
         for r in a.get("risks", [])
