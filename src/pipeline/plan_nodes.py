@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -23,32 +22,24 @@ from src.pipeline.prompts import (
 logger = logging.getLogger(__name__)
 
 
-def _load_analysis_content(state: PlanState) -> str:
+async def _load_analysis_content(state: PlanState) -> str:
     try:
         client = build_forge_client(get_settings())
         path = f"analysis/{state['issue_iid']}/analysis.json"
-
-        async def _read():
-            return await client.get_file_content(path, ref=state["branch_name"])
-
-        return asyncio.run(_read())
+        return await client.get_file_content(path, ref=state["branch_name"])
     except Exception:
         logger.info("No prior analysis artifact found; proceeding without it")
         return ""
 
 
-def gather_context_node(state: PlanState) -> dict:
+async def gather_context_node(state: PlanState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     gatherer = ContextGatherer(client)
     branch_manager = _build_branch_manager(client, settings)
 
-    async def _gather():
-        context = await gatherer.gather(state["issue_iid"])
-        await branch_manager.ensure_feature_branch(state["issue_iid"])
-        return context
-
-    ctx = asyncio.run(_gather())
+    ctx = await gatherer.gather(state["issue_iid"])
+    await branch_manager.ensure_feature_branch(state["issue_iid"])
     branch_name = f"feature/{state['issue_iid']}"
 
     if settings.platform == "github":
@@ -58,7 +49,7 @@ def gather_context_node(state: PlanState) -> dict:
         project_id = settings.gitlab_project_id
         project_path = settings.gitlab_project_path
 
-    analysis_content = _load_analysis_content({**state, "branch_name": branch_name})
+    analysis_content = await _load_analysis_content({**state, "branch_name": branch_name})
     return {
         **ctx,
         "project_id": project_id,
@@ -156,7 +147,7 @@ def review_node(state: PlanState) -> dict:
     }
 
 
-def finalize_node(state: PlanState) -> dict:
+async def finalize_node(state: PlanState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     branch_manager = _build_branch_manager(client, settings)
@@ -172,42 +163,35 @@ def finalize_node(state: PlanState) -> dict:
     json_content = json.dumps(artifact, indent=2, ensure_ascii=False)
     md_content = _render_plan_markdown(state, artifact)
 
-    async def _write():
-        await branch_manager.ensure_feature_branch(issue_iid)
-        json_url = await branch_manager.write_artifact(
-            branch, f"plans/{issue_iid}/plan.json", json_content,
-            f"plan: JSON for #{issue_iid}",
-        )
-        md_url = await branch_manager.write_artifact(
-            branch, f"plans/{issue_iid}/plan.md", md_content,
-            f"plan: Markdown for #{issue_iid}",
-        )
-        await apply_transition(client, issue_iid, add=[PLAN_PROCESSED], remove=[PLAN_TODO])
-        await client.update_issue_description(issue_iid, md_content)
-        note = await client.post_comment(issue_iid, _build_comment(branch, json_url, md_url, state))
-        return json_url, md_url, note["id"]
-
-    json_url, md_url, comment_id = asyncio.run(_write())
+    await branch_manager.ensure_feature_branch(issue_iid)
+    json_url = await branch_manager.write_artifact(
+        branch, f"plans/{issue_iid}/plan.json", json_content,
+        f"plan: JSON for #{issue_iid}",
+    )
+    md_url = await branch_manager.write_artifact(
+        branch, f"plans/{issue_iid}/plan.md", md_content,
+        f"plan: Markdown for #{issue_iid}",
+    )
+    await apply_transition(client, issue_iid, add=[PLAN_PROCESSED], remove=[PLAN_TODO])
+    await client.update_issue_description(issue_iid, md_content)
+    note = await client.post_comment(issue_iid, _build_comment(branch, json_url, md_url, state))
     return {
         "status": "approved",
         "artifact_json_url": json_url,
         "artifact_md_url": md_url,
-        "gitlab_comment_id": comment_id,
+        "gitlab_comment_id": note["id"],
     }
 
 
-def handle_failure_node(state: PlanState) -> dict:
+async def handle_failure_node(state: PlanState) -> dict:
     client = build_forge_client(get_settings())
     reason = state.get("failure_reason") or "Max iterations reached without plan approval"
 
-    async def _fail():
-        await apply_transition(client, state["issue_iid"], add=[PLAN_FAILED], remove=[PLAN_TODO])
-        await client.post_comment(
-            state["issue_iid"],
-            f"## Planning Failed\n\nReason: {reason}\n\nRe-add `plan_todo` to retry.",
-        )
-
-    asyncio.run(_fail())
+    await apply_transition(client, state["issue_iid"], add=[PLAN_FAILED], remove=[PLAN_TODO])
+    await client.post_comment(
+        state["issue_iid"],
+        f"## Planning Failed\n\nReason: {reason}\n\nRe-add `plan_todo` to retry.",
+    )
     return {"status": "failed"}
 
 

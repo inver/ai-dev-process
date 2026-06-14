@@ -1,5 +1,5 @@
 # Dockerfile — analysis pipeline (analyst runs via the Claude Code CLI)
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -13,8 +13,9 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[pipeline]"
+COPY pyproject.toml requirements-lock.txt ./
+RUN pip install --no-cache-dir --no-deps -r requirements-lock.txt
+RUN pip install --no-cache-dir --no-deps -e ".[pipeline]"
 
 COPY src/ ./src/
 COPY prompts/ ./prompts/

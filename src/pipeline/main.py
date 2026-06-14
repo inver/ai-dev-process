@@ -140,7 +140,7 @@ def main() -> None:
     )
 
     try:
-        final_state = graph.invoke(initial_state)
+        final_state = asyncio.run(graph.ainvoke(initial_state))
         logger.info(
             "Pipeline finished for issue #%s: status=%s after %s iteration(s)",
             issue_iid, final_state["status"], final_state.get("iteration"),
@@ -151,14 +151,15 @@ def main() -> None:
         print(f"Unhandled pipeline error: {exc}", file=sys.stderr)
         client = build_forge_client(settings)
         todo_label, failed_label = _failure_labels(settings.trigger_type)
-        asyncio.run(apply_transition(
-            client, issue_iid,
-            add=[failed_label], remove=[todo_label],
-        ))
-        asyncio.run(client.post_comment(
-            issue_iid,
-            f"## Pipeline Failed\n\nUnexpected error: `{exc}`\n\nCheck CI job logs for details.",
-        ))
+
+        async def _cleanup():
+            await apply_transition(client, issue_iid, add=[failed_label], remove=[todo_label])
+            await client.post_comment(
+                issue_iid,
+                f"## Pipeline Failed\n\nUnexpected error: `{exc}`\n\nCheck CI job logs for details.",
+            )
+
+        asyncio.run(_cleanup())
         exit_code = 1
 
     sys.exit(exit_code)
