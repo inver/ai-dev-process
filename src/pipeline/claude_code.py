@@ -37,21 +37,37 @@ def _format_process_output(stdout: str | None, stderr: str | None) -> str:
 
 
 def _extract_json(text: str) -> str:
-    """Pull a JSON object out of the model's final text, tolerating ``` fences
-    or surrounding prose."""
+    """Pull a JSON object out of model text, tolerating fences and prose."""
     text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    if not text.startswith("{"):
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            text = text[start:end + 1]
+    decoder = json.JSONDecoder()
+
+    def valid_object(candidate: str) -> str | None:
+        candidate = candidate.strip()
+        try:
+            value, end = decoder.raw_decode(candidate)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(value, dict):
+            return candidate[:end]
+        return None
+
+    if parsed := valid_object(text):
+        return parsed
+
+    if "```" in text:
+        fence_parts = text.split("```")
+        for index in range(1, len(fence_parts), 2):
+            candidate = fence_parts[index].strip()
+            if candidate.startswith("json"):
+                candidate = candidate[4:].lstrip()
+            if parsed := valid_object(candidate):
+                return parsed
+
+    for start, char in enumerate(text):
+        if char != "{":
+            continue
+        if parsed := valid_object(text[start:]):
+            return parsed
     return text
 
 

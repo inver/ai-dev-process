@@ -41,6 +41,15 @@ def test_extract_json_strips_fences_and_prose():
     assert json.loads(_extract_json(fenced))["problem_statement"] == "Fix login"
 
 
+def test_extract_json_skips_invalid_brace_snippets_before_json():
+    text = (
+        'Fix `"{issue_iid}"` in the prompt.\n\n'
+        + json.dumps(VALID_ANALYSIS)
+    )
+
+    assert json.loads(_extract_json(text))["problem_statement"] == "Fix login"
+
+
 def _mock_run(stdout="", returncode=0, stderr=""):
     return MagicMock(stdout=stdout, returncode=returncode, stderr=stderr)
 
