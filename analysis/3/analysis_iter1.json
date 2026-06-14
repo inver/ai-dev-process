@@ -1,0 +1,65 @@
+{
+  "problem_statement": "The pipeline has two gaps: (1) When the Claude Code CLI or Codex CLI hits a token-rate-limit error, the subprocess call immediately raises ClaudeCodeError/CodexError and the pipeline fails rather than waiting for the limit window to reset and retrying. This affects all six CLI wrappers (claude_code.py, claude_plan.py, claude_dev.py, codex.py, codex_plan.py, codex_mr.py). (2) The 'plan' and 'develop' trigger types do not ensure operations run against the feature/<issue_id> branch the way the 'analysis' pipeline does: plan_nodes.py's gather-context node does not call ensure_feature_branch(), and it is unclear whether dev_nodes.py sets up the feature branch before writing plan/analysis artifacts there.",
+  "acceptance_criteria": [
+    "When any Claude Code CLI subprocess exits with a rate-limit/token-quota error (detected via known keywords in stderr/stdout or a specific exit code), the runner sleeps for a configurable duration and retries up to a configurable maximum before raising a hard error.",
+    "When any Codex CLI subprocess exits with a rate-limit/quota error, the same wait-and-retry behavior applies.",
+    "Rate-limit retry logic is present in all six CLI wrapper modules: src/pipeline/claude_code.py, src/pipeline/claude_plan.py, src/pipeline/claude_dev.py, src/pipeline/codex.py, src/pipeline/codex_plan.py, src/pipeline/codex_mr.py.",
+    "Two new config fields exist in src/config.py: rate_limit_retry_wait_seconds (default 60) and max_rate_limit_retries (default 10), readable from environment variables RATE_LIMIT_RETRY_WAIT_SECONDS and MAX_RATE_LIMIT_RETRIES.",
+    "The 'plan' pipeline's gather-context node in src/pipeline/plan_nodes.py calls ensure_feature_branch(issue_iid) before reading or writing any artifacts, mirroring src/pipeline/nodes.py.",
+    "The 'develop' pipeline's gather-context node in src/pipeline/dev_nodes.py calls ensure_feature_branch(issue_iid) to guarantee the feature/<issue_id> branch exists before the developer subprocess attempts to read analysis/plan artifacts from it.",
+    "Existing unit tests in tests/unit/ continue to pass; new tests cover the rate-limit retry path in claude_code.py and codex.py, and the ensure_feature_branch call in plan_nodes.py and dev_nodes.py."
+  ],
+  "technical_approach": [
+    "1. Add a shared rate-limit detection helper (e.g., _is_rate_limit_error(output: str) -> bool) in a new src/pipeline/retry.py module. It should match known Claude and Codex rate-limit message patterns such as 'rate limit', 'token limit', 'quota exceeded', 'overloaded', 'too many requests' (case-insensitive). Export a run_with_rate_limit_retry(fn, cfg, logger) wrapper that calls fn(), catches ClaudeCodeError/CodexError whose message matches _is_rate_limit_error, sleeps cfg.rate_limit_retry_wait_seconds, and retries up to cfg.max_rate_limit_retries times before re-raising.",
+    "2. Add rate_limit_retry_wait_seconds: int = int(os.getenv('RATE_LIMIT_RETRY_WAIT_SECONDS', '60')) and max_rate_limit_retries: int = int(os.getenv('MAX_RATE_LIMIT_RETRIES', '10')) fields to the Settings dataclass in src/config.py.",
+    "3. Wrap the subprocess call site in src/pipeline/claude_code.py inside run_with_rate_limit_retry so that rate-limit exits sleep and retry. Mirror this change identically in src/pipeline/claude_plan.py and src/pipeline/claude_dev.py.",
+    "4. Apply the same run_with_rate_limit_retry wrapper to the subprocess call site in src/pipeline/codex.py, and mirror in src/pipeline/codex_plan.py and src/pipeline/codex_mr.py.",
+    "5. In src/pipeline/plan_nodes.py, locate the gather_context_node (or equivalent first node) and add a call to ensure_feature_branch(state.issue_iid) (importing from src/gitlab/branches.py) before any file reads or writes, matching the pattern already present in src/pipeline/nodes.py.",
+    "6. In src/pipeline/dev_nodes.py, confirm whether ensure_feature_branch is already called in the gather-context node; if not, add it there before the developer subprocess clones or reads artifacts. The feature/<issue_id> branch holds analysis/plan artifacts that the developer needs to read.",
+    "7. Add unit tests in tests/unit/test_claude_code.py (and test_claude_plan.py, test_claude_dev.py) that mock the subprocess to return a rate-limit error N times then succeed, and assert the wrapper retried N times and ultimately returned the successful result.",
+    "8. Add parallel unit tests in tests/unit/test_codex*.py for the Codex CLI wrappers.",
+    "9. Add/extend tests in tests/unit/test_plan_nodes.py and tests/unit/test_dev_nodes.py to assert ensure_feature_branch is called during gather_context."
+  ],
+  "dependencies": [
+    "time.sleep or asyncio.sleep (stdlib — no new packages required)",
+    "src/config.py — must be extended with two new fields",
+    "src/gitlab/branches.py — ensure_feature_branch() already exists and handles the 'branch already exists' case",
+    "Empirically confirmed rate-limit error message strings from Claude Code CLI (claude subprocess) and Codex CLI (codex subprocess) — needed to write reliable _is_rate_limit_error patterns",
+    "CI/CD job timeout setting in analyze-issues.yml — may need to be raised if rate-limit waits can total many minutes"
+  ],
+  "risks": [
+    {
+      "description": "Rate-limit error message patterns from the Claude Code CLI and Codex CLI are unknown without empirical testing. If the actual messages differ from the patterns coded in _is_rate_limit_error, the retry will not trigger and the pipeline will still fail hard.",
+      "mitigation": "Run each CLI manually against a rate-limited account, capture stderr/stdout, and use those exact strings as test fixtures. Make the pattern list configurable via an env variable (RATE_LIMIT_ERROR_PATTERNS) so operators can extend it without a code change.",
+      "severity": "high"
+    },
+    {
+      "description": "CI job timeout (currently 40 minutes per analyze-issues.yml) may expire during a rate-limit wait if limits reset on a 60-minute window. This would kill the job before the retry fires.",
+      "mitigation": "Document that jobs using rate-limit retry should set timeout: 120 minutes or more in the CI YAML. Add a log warning when the computed worst-case wait (retry_wait * max_retries) exceeds a threshold.",
+      "severity": "high"
+    },
+    {
+      "description": "If max_rate_limit_retries is not capped or is set very high, a persistent quota issue (e.g., account suspended) would cause the pipeline to hang for hours, tying up a CI runner.",
+      "mitigation": "Default max_rate_limit_retries to 10, log each retry attempt with elapsed time, and ensure the outer iteration_timeout_seconds still acts as an absolute deadline (the existing timeout in subprocess.run will still fire).",
+      "severity": "medium"
+    },
+    {
+      "description": "The plan pipeline may already commit artifacts to the feature branch via a different code path. Adding a duplicate ensure_feature_branch call could cause a harmless no-op or an unexpected API call if the branch exists.",
+      "mitigation": "The existing ensure_feature_branch in src/gitlab/branches.py already handles the 'branch already exists' case gracefully (confirmed by the exploration). No additional guard is needed.",
+      "severity": "low"
+    },
+    {
+      "description": "The develop pipeline clones into a temp directory under develop/<issue_id>; if it does not have the feature/<issue_id> branch checked out, the developer subprocess cannot read analysis/plan JSON artifacts from it.",
+      "mitigation": "In dev_nodes.py, after ensuring the feature branch exists, explicitly pass artifact file contents or paths to the developer subprocess via its prompt context rather than relying on the subprocess to git-fetch the feature branch itself.",
+      "severity": "medium"
+    }
+  ],
+  "estimated_complexity": "medium",
+  "open_questions": [
+    "What exact exit code and stderr/stdout text does the Claude Code CLI emit when the token rate limit is hit? This determines the _is_rate_limit_error patterns.",
+    "What exact exit code and error text does the Codex CLI emit for quota/rate-limit errors (API key path vs OAuth path may differ)?",
+    "Does 'develop process should go in the feature/<issue_id> branch' mean (a) plan artifacts written to feature/<issue_id> by plan_nodes is sufficient, (b) the developer subprocess should also commit implementation files to feature/<issue_id> instead of the separate develop/<issue_id> branch, or (c) both? This significantly changes the scope.",
+    "Should the rate-limit wait duration be read from the Retry-After header (if the CLI forwards it in its output) or always use a fixed configured value?",
+    "Should a GitLab comment be posted to the issue when the pipeline is waiting for a rate-limit reset, to give visibility to the user?"
+  ]
+}
