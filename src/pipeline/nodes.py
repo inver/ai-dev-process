@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -43,7 +42,7 @@ def _build_branch_manager(client, settings) -> BranchManager:
     return BranchManager(client, web_url)
 
 
-def _persist_analysis_snapshot(state: AnalysisState, result: AnalysisOutput, iteration: int) -> None:
+async def _persist_analysis_snapshot(state: AnalysisState, result: AnalysisOutput, iteration: int) -> None:
     """Best-effort commit of an analyst snapshot for iteration ``iteration``.
 
     Failures are logged and swallowed: intermediate snapshots are for an audit
@@ -61,11 +60,8 @@ def _persist_analysis_snapshot(state: AnalysisState, result: AnalysisOutput, ite
         json_path = f"analysis/{issue_iid}/analysis_iter{iteration}.json"
         md_path = f"analysis/{issue_iid}/analysis_iter{iteration}.md"
 
-        async def _write():
-            await bm.write_artifact(branch, json_path, json_content, msg)
-            await bm.write_artifact(branch, md_path, md_content, msg)
-
-        asyncio.run(_write())
+        await bm.write_artifact(branch, json_path, json_content, msg)
+        await bm.write_artifact(branch, md_path, md_content, msg)
         logger.info("Persisted analysis snapshot for issue #%s iteration %s", issue_iid, iteration)
     except Exception:
         logger.warning(
@@ -74,7 +70,7 @@ def _persist_analysis_snapshot(state: AnalysisState, result: AnalysisOutput, ite
         )
 
 
-def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iteration: int) -> None:
+async def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iteration: int) -> None:
     """Best-effort commit of a reviewer snapshot for iteration ``iteration``."""
     issue_iid = state["issue_iid"]
     branch = state["branch_name"]
@@ -85,10 +81,7 @@ def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iterati
         msg = f"analysis: iteration {iteration} review for #{issue_iid}"
         json_path = f"analysis/{issue_iid}/review_iter{iteration}.json"
 
-        async def _write():
-            await bm.write_artifact(branch, json_path, json_content, msg)
-
-        asyncio.run(_write())
+        await bm.write_artifact(branch, json_path, json_content, msg)
         logger.info("Persisted review snapshot for issue #%s iteration %s", issue_iid, iteration)
     except Exception:
         logger.warning(
@@ -97,20 +90,17 @@ def _persist_review_snapshot(state: AnalysisState, review: ReviewResult, iterati
         )
 
 
-def gather_context_node(state: AnalysisState) -> dict:
+async def gather_context_node(state: AnalysisState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     gatherer = ContextGatherer(client)
     branch_manager = _build_branch_manager(client, settings)
 
-    async def _gather():
-        context = await gatherer.gather(state["issue_iid"])
-        # Create the feature branch up front so per-iteration snapshots have a
-        # target; ensure_feature_branch is idempotent.
-        await branch_manager.ensure_feature_branch(state["issue_iid"])
-        return context
-
-    ctx = asyncio.run(_gather())
+    context = await gatherer.gather(state["issue_iid"])
+    # Create the feature branch up front so per-iteration snapshots have a
+    # target; ensure_feature_branch is idempotent.
+    await branch_manager.ensure_feature_branch(state["issue_iid"])
+    ctx = context
 
     if settings.platform == "github":
         project_id = f"{settings.github_owner}/{settings.github_repo}"
@@ -135,7 +125,7 @@ def gather_context_node(state: AnalysisState) -> dict:
     }
 
 
-def analyze_node(state: AnalysisState) -> dict:
+async def analyze_node(state: AnalysisState) -> dict:
     comments_block = format_comments(state["issue_comments"])
     prompt = ANALYST_INITIAL.format(
         issue_title=state["issue_title"],
@@ -149,7 +139,7 @@ def analyze_node(state: AnalysisState) -> dict:
         state["issue_iid"], state["iteration"],
     )
     result: AnalysisOutput = run_claude_analysis(ANALYST_SYSTEM, prompt)
-    _persist_analysis_snapshot(state, result, state["iteration"] + 1)
+    await _persist_analysis_snapshot(state, result, state["iteration"] + 1)
     return {
         "iteration": state["iteration"] + 1,
         "iteration_start_time": datetime.now(timezone.utc).isoformat(),
@@ -159,7 +149,7 @@ def analyze_node(state: AnalysisState) -> dict:
     }
 
 
-def revise_node(state: AnalysisState) -> dict:
+async def revise_node(state: AnalysisState) -> dict:
     review = ReviewResult(**state["review_result"])
     comments_block = format_comments(state["issue_comments"])
     prompt = ANALYST_REVISION.format(
@@ -179,7 +169,7 @@ def revise_node(state: AnalysisState) -> dict:
         state["issue_iid"], state["iteration"], len(review.concerns or []),
     )
     result: AnalysisOutput = run_claude_analysis(ANALYST_SYSTEM, prompt)
-    _persist_analysis_snapshot(state, result, state["iteration"] + 1)
+    await _persist_analysis_snapshot(state, result, state["iteration"] + 1)
     return {
         "iteration": state["iteration"] + 1,
         "iteration_start_time": datetime.now(timezone.utc).isoformat(),
@@ -189,7 +179,7 @@ def revise_node(state: AnalysisState) -> dict:
     }
 
 
-def review_node(state: AnalysisState) -> dict:
+async def review_node(state: AnalysisState) -> dict:
     settings = get_settings()
     system_prompt = REVIEWER_SYSTEM.format(min_quality_score=settings.min_review_quality_score)
     prompt = REVIEWER_PROMPT.format(
@@ -223,7 +213,7 @@ def review_node(state: AnalysisState) -> dict:
         settings.min_review_quality_score,
         len(result.concerns or []), len(result.missing_sections or []),
     )
-    _persist_review_snapshot(state, result, state["iteration"])
+    await _persist_review_snapshot(state, result, state["iteration"])
     history_entry = {
         "iteration": state["iteration"],
         "approved": approved,
@@ -238,7 +228,7 @@ def review_node(state: AnalysisState) -> dict:
     }
 
 
-def finalize_node(state: AnalysisState) -> dict:
+async def finalize_node(state: AnalysisState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     branch_manager = _build_branch_manager(client, settings)
@@ -260,41 +250,34 @@ def finalize_node(state: AnalysisState) -> dict:
     json_path = f"analysis/{issue_iid}/analysis.json"
     md_path = f"analysis/{issue_iid}/analysis.md"
 
-    async def _write():
-        await branch_manager.ensure_feature_branch(issue_iid)
-        json_url = await branch_manager.write_artifact(branch, json_path, json_content,
-                                                       f"analysis: JSON for #{issue_iid}")
-        md_url = await branch_manager.write_artifact(branch, md_path, md_content,
-                                                     f"analysis: Markdown for #{issue_iid}")
-        await apply_transition(client, issue_iid, add=[ANALYSIS_PROCESSED], remove=[ANALYSIS_TODO])
-        await client.update_issue_description(issue_iid, md_content)
-        comment_body = _build_comment(branch, json_url, md_url, state)
-        note = await client.post_comment(issue_iid, comment_body)
-        return json_url, md_url, note["id"]
-
-    json_url, md_url, comment_id = asyncio.run(_write())
+    await branch_manager.ensure_feature_branch(issue_iid)
+    json_url = await branch_manager.write_artifact(branch, json_path, json_content,
+                                                   f"analysis: JSON for #{issue_iid}")
+    md_url = await branch_manager.write_artifact(branch, md_path, md_content,
+                                                 f"analysis: Markdown for #{issue_iid}")
+    await apply_transition(client, issue_iid, add=[ANALYSIS_PROCESSED], remove=[ANALYSIS_TODO])
+    await client.update_issue_description(issue_iid, md_content)
+    comment_body = _build_comment(branch, json_url, md_url, state)
+    note = await client.post_comment(issue_iid, comment_body)
     return {
         "status": "approved",
         "artifact_json_url": json_url,
         "artifact_md_url": md_url,
-        "gitlab_comment_id": comment_id,
+        "gitlab_comment_id": note["id"],
     }
 
 
-def handle_failure_node(state: AnalysisState) -> dict:
+async def handle_failure_node(state: AnalysisState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     reason = state.get("failure_reason") or "Max iterations reached without reviewer approval"
 
-    async def _fail():
-        await apply_transition(client, state["issue_iid"], add=[ANALYSIS_FAILED], remove=[ANALYSIS_TODO])
-        await client.post_comment(
-            state["issue_iid"],
-            f"## Analysis Failed\n\nReason: {reason}\n\n"
-            "Re-add the `analysis_todo` label to retry.",
-        )
-
-    asyncio.run(_fail())
+    await apply_transition(client, state["issue_iid"], add=[ANALYSIS_FAILED], remove=[ANALYSIS_TODO])
+    await client.post_comment(
+        state["issue_iid"],
+        f"## Analysis Failed\n\nReason: {reason}\n\n"
+        "Re-add the `analysis_todo` label to retry.",
+    )
     return {"status": "failed"}
 
 

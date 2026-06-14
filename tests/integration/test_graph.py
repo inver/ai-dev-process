@@ -44,7 +44,7 @@ def _mock_client():
     return mc
 
 
-def _run_graph(analyst_returns, reviewer_returns: list):
+async def _run_graph(analyst_returns, reviewer_returns: list):
     from src.pipeline.graph import build_graph
 
     mock_client = _mock_client()
@@ -71,11 +71,11 @@ def _run_graph(analyst_returns, reviewer_returns: list):
             with patch("src.pipeline.nodes.run_codex_review") as mock_rv:
                 mock_rv.side_effect = lambda sys, usr, settings=None: next(review_iter)
                 graph = build_graph()
-                return graph.invoke(initial_state)
+                return await graph.ainvoke(initial_state)
 
 
-def test_happy_path_approve_on_first_iteration():
-    final = _run_graph(
+async def test_happy_path_approve_on_first_iteration():
+    final = await _run_graph(
         analyst_returns=_mock_analysis(),
         reviewer_returns=[_mock_review(True)],
     )
@@ -83,8 +83,8 @@ def test_happy_path_approve_on_first_iteration():
     assert final["iteration"] == 1
 
 
-def test_approve_after_one_revision():
-    final = _run_graph(
+async def test_approve_after_one_revision():
+    final = await _run_graph(
         analyst_returns=_mock_analysis(),
         reviewer_returns=[_mock_review(False), _mock_review(True)],
     )
@@ -92,8 +92,8 @@ def test_approve_after_one_revision():
     assert final["iteration"] == 2
 
 
-def test_fails_after_max_iterations():
-    final = _run_graph(
+async def test_fails_after_max_iterations():
+    final = await _run_graph(
         analyst_returns=_mock_analysis(),
         reviewer_returns=[_mock_review(False)] * 3,
     )

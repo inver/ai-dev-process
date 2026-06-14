@@ -1,4 +1,4 @@
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 from src.models.plan import PlanState
 from src.pipeline.plan_edges import route_after_plan_review
@@ -22,7 +22,7 @@ def build_plan_graph() -> StateGraph:
     builder.add_node("finalize", finalize_node)
     builder.add_node("handle_failure", handle_failure_node)
 
-    builder.set_entry_point("gather_context")
+    builder.add_edge(START, "gather_context")
     builder.add_edge("gather_context", "plan")
     builder.add_edge("plan", "review")
     builder.add_edge("revise", "review")

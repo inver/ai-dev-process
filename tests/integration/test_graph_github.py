@@ -23,7 +23,7 @@ def github_initial_state():
     }
 
 
-def test_github_pipeline_happy_path(github_initial_state, monkeypatch):
+async def test_github_pipeline_happy_path(github_initial_state, monkeypatch):
     monkeypatch.setenv("PLATFORM", "github")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
     monkeypatch.setenv("GITHUB_OWNER", "myorg")
@@ -63,7 +63,7 @@ def test_github_pipeline_happy_path(github_initial_state, monkeypatch):
         patch("src.pipeline.nodes.run_codex_review", return_value=mock_review),
     ):
         graph = build_graph()
-        final_state = graph.invoke(github_initial_state)
+        final_state = await graph.ainvoke(github_initial_state)
 
     assert final_state["status"] == "approved"
     mock_client.post_comment.assert_called_once()

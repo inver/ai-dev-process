@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import shutil
@@ -102,31 +101,23 @@ def _commit_and_push(repo_dir: str, dev_branch: str, issue_iid: int) -> None:
     logger.info("Committed and pushed branch %s for issue #%s", dev_branch, issue_iid)
 
 
-def _load_artifact(state: DevelopmentState, path: str) -> str:
+async def _load_artifact(state: DevelopmentState, path: str) -> str:
     try:
         client = build_forge_client(get_settings())
-
-        async def _read():
-            return await client.get_file_content(path, ref=state["branch_name"])
-
-        return asyncio.run(_read())
+        return await client.get_file_content(path, ref=state["branch_name"])
     except Exception:
         logger.info("Artifact %s not found on %s", path, state["branch_name"])
         return ""
 
 
-def gather_context_node(state: DevelopmentState) -> dict:
+async def gather_context_node(state: DevelopmentState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
     gatherer = ContextGatherer(client)
     branch_manager = _build_branch_manager(client, settings)
 
-    async def _gather():
-        context = await gatherer.gather(state["issue_iid"])
-        await branch_manager.ensure_feature_branch(state["issue_iid"])
-        return context
-
-    ctx = asyncio.run(_gather())
+    ctx = await gatherer.gather(state["issue_iid"])
+    await branch_manager.ensure_feature_branch(state["issue_iid"])
     branch_name = f"feature/{state['issue_iid']}"
 
     if settings.platform == "github":
@@ -143,10 +134,10 @@ def gather_context_node(state: DevelopmentState) -> dict:
         "project_path": project_path,
         "branch_name": branch_name,
         "dev_branch_name": f"develop/{state['issue_iid']}",
-        "analysis_content": _load_artifact(
+        "analysis_content": await _load_artifact(
             state_with_branch, f"analysis/{state['issue_iid']}/analysis.json"
         ),
-        "plan_content": _load_artifact(
+        "plan_content": await _load_artifact(
             state_with_branch, f"plans/{state['issue_iid']}/plan.json"
         ),
         "status": "developing",
@@ -162,7 +153,7 @@ def gather_context_node(state: DevelopmentState) -> dict:
     }
 
 
-def develop_node(state: DevelopmentState) -> dict:
+async def develop_node(state: DevelopmentState) -> dict:
     settings = get_settings()
     prompt = DEVELOPER_INITIAL.format(
         issue_title=state["issue_title"],
@@ -187,20 +178,16 @@ def develop_node(state: DevelopmentState) -> dict:
             shutil.rmtree(repo_dir, ignore_errors=True)
 
     client = build_forge_client(settings)
-
-    async def _create_mr():
-        return await client.create_merge_request(
-            source_branch=dev_branch,
-            target_branch="main",
-            title=f"develop: implement #{issue_iid} - {state['issue_title']}",
-            description=(
-                f"Closes #{issue_iid}\n\n"
-                f"## Implementation Summary\n{result.implementation_summary}\n\n"
-                "*Implemented by Claude Code; reviewed by Codex*"
-            ),
-        )
-
-    mr = asyncio.run(_create_mr())
+    mr = await client.create_merge_request(
+        source_branch=dev_branch,
+        target_branch="main",
+        title=f"develop: implement #{issue_iid} - {state['issue_title']}",
+        description=(
+            f"Closes #{issue_iid}\n\n"
+            f"## Implementation Summary\n{result.implementation_summary}\n\n"
+            "*Implemented by Claude Code; reviewed by Codex*"
+        ),
+    )
     return {
         "iteration": state["iteration"] + 1,
         "iteration_start_time": datetime.now(timezone.utc).isoformat(),
@@ -242,14 +229,11 @@ def revise_node(state: DevelopmentState) -> dict:
     }
 
 
-def review_mr_node(state: DevelopmentState) -> dict:
+async def review_mr_node(state: DevelopmentState) -> dict:
     settings = get_settings()
     client = build_forge_client(settings)
 
-    async def _get_diff():
-        return await client.get_merge_request_diff(state["mr_id"])
-
-    mr_diff = asyncio.run(_get_diff())
+    mr_diff = await client.get_merge_request_diff(state["mr_id"])
     system_prompt = MR_REVIEWER_SYSTEM.format(
         min_quality_score=settings.min_review_quality_score
     )
@@ -287,35 +271,29 @@ def review_mr_node(state: DevelopmentState) -> dict:
     }
 
 
-def finalize_node(state: DevelopmentState) -> dict:
+async def finalize_node(state: DevelopmentState) -> dict:
     client = build_forge_client(get_settings())
 
-    async def _finish():
-        await apply_transition(client, state["issue_iid"], add=[DEVELOP_PROCESSED], remove=[DEVELOP_TODO])
-        last_review = state.get("dev_history", [{}])[-1]
-        score = last_review.get("quality_score", "N/A")
-        note = await client.post_comment(
-            state["issue_iid"],
-            "## Development Complete\n\n"
-            f"MR [#{state['mr_id']}]({state['mr_url']}) created after "
-            f"**{state['iteration']} iteration(s)** with review score **{score}/10**.\n\n"
-            f"**Implementation summary:** {state['implementation_summary'][:500]}",
-        )
-        return note["id"]
-
-    return {"status": "approved", "gitlab_comment_id": asyncio.run(_finish())}
+    await apply_transition(client, state["issue_iid"], add=[DEVELOP_PROCESSED], remove=[DEVELOP_TODO])
+    last_review = state.get("dev_history", [{}])[-1]
+    score = last_review.get("quality_score", "N/A")
+    note = await client.post_comment(
+        state["issue_iid"],
+        "## Development Complete\n\n"
+        f"MR [#{state['mr_id']}]({state['mr_url']}) created after "
+        f"**{state['iteration']} iteration(s)** with review score **{score}/10**.\n\n"
+        f"**Implementation summary:** {state['implementation_summary'][:500]}",
+    )
+    return {"status": "approved", "gitlab_comment_id": note["id"]}
 
 
-def handle_failure_node(state: DevelopmentState) -> dict:
+async def handle_failure_node(state: DevelopmentState) -> dict:
     client = build_forge_client(get_settings())
     reason = state.get("failure_reason") or "Max iterations reached without MR approval"
 
-    async def _fail():
-        await apply_transition(client, state["issue_iid"], add=[DEVELOP_FAILED], remove=[DEVELOP_TODO])
-        await client.post_comment(
-            state["issue_iid"],
-            f"## Development Failed\n\nReason: {reason}\n\nRe-add `develop_todo` to retry.",
-        )
-
-    asyncio.run(_fail())
+    await apply_transition(client, state["issue_iid"], add=[DEVELOP_FAILED], remove=[DEVELOP_TODO])
+    await client.post_comment(
+        state["issue_iid"],
+        f"## Development Failed\n\nReason: {reason}\n\nRe-add `develop_todo` to retry.",
+    )
     return {"status": "failed"}

@@ -36,7 +36,7 @@ def _base_state(**overrides) -> dict:
     return state
 
 
-def test_gather_context_node_populates_state():
+async def test_gather_context_node_populates_state():
     from unittest.mock import patch, AsyncMock
 
     mock_client = MagicMock()
@@ -57,13 +57,13 @@ def test_gather_context_node_populates_state():
             mock_settings.return_value.gitlab_token.get_secret_value.return_value = "tk"
             mock_settings.return_value.gitlab_project_id = "123"
             mock_settings.return_value.gitlab_project_path = "group/repo"
-            result = nodes.gather_context_node(_base_state())
+            result = await nodes.gather_context_node(_base_state())
 
     assert result["issue_title"] == "Add login"
     assert result["status"] == "analyzing"
 
 
-def test_gather_context_node_creates_missing_branch():
+async def test_gather_context_node_creates_missing_branch():
     mock_client = MagicMock()
     mock_client.get_issue = AsyncMock(return_value={
         "iid": 7, "title": "Add login", "description": "Details",
@@ -82,7 +82,7 @@ def test_gather_context_node_creates_missing_branch():
             mock_settings.return_value.gitlab_token.get_secret_value.return_value = "tk"
             mock_settings.return_value.gitlab_project_id = "123"
             mock_settings.return_value.gitlab_project_path = "group/repo"
-            nodes.gather_context_node(_base_state())
+            await nodes.gather_context_node(_base_state())
 
     mock_client.create_branch.assert_called_once()
 
@@ -98,7 +98,7 @@ def _written_paths(branch_manager) -> list:
     return [call.args[1] for call in branch_manager.write_artifact.call_args_list]
 
 
-def test_analyze_node_persists_iteration_snapshot():
+async def test_analyze_node_persists_iteration_snapshot():
     from src.models.analysis import AnalysisOutput
     analysis = AnalysisOutput.model_validate_json(json.dumps({
         "problem_statement": "Fix login",
@@ -115,7 +115,7 @@ def test_analyze_node_persists_iteration_snapshot():
         _settings_for_persist(mock_settings)
         bm = MockBM.return_value
         bm.write_artifact = AsyncMock()
-        result = nodes.analyze_node(_base_state(iteration=0))
+        result = await nodes.analyze_node(_base_state(iteration=0))
 
     paths = _written_paths(bm)
     assert "analysis/7/analysis_iter1.json" in paths
@@ -123,7 +123,7 @@ def test_analyze_node_persists_iteration_snapshot():
     assert result["iteration"] == 1
 
 
-def test_revise_node_persists_iteration_snapshot():
+async def test_revise_node_persists_iteration_snapshot():
     from src.models.analysis import AnalysisOutput
     analysis = AnalysisOutput.model_validate_json(json.dumps({
         "problem_statement": "Fix login v2",
@@ -148,7 +148,7 @@ def test_revise_node_persists_iteration_snapshot():
         _settings_for_persist(mock_settings)
         bm = MockBM.return_value
         bm.write_artifact = AsyncMock()
-        result = nodes.revise_node(state)
+        result = await nodes.revise_node(state)
 
     paths = _written_paths(bm)
     assert "analysis/7/analysis_iter2.json" in paths
@@ -156,7 +156,7 @@ def test_revise_node_persists_iteration_snapshot():
     assert result["iteration"] == 2
 
 
-def test_review_node_persists_review_snapshot():
+async def test_review_node_persists_review_snapshot():
     from src.models.review import ReviewResult
     mock_result = ReviewResult(
         approved=True, feedback="Great", quality_score=9,
@@ -171,13 +171,13 @@ def test_review_node_persists_review_snapshot():
         _settings_for_persist(mock_settings)
         bm = MockBM.return_value
         bm.write_artifact = AsyncMock()
-        result = nodes.review_node(state)
+        result = await nodes.review_node(state)
 
     assert "analysis/7/review_iter1.json" in _written_paths(bm)
     assert result["approved"] is True
 
 
-def test_analyze_node_snapshot_failure_is_swallowed():
+async def test_analyze_node_snapshot_failure_is_swallowed():
     from src.models.analysis import AnalysisOutput
     analysis = AnalysisOutput.model_validate_json(json.dumps({
         "problem_statement": "Fix login",
@@ -193,14 +193,14 @@ def test_analyze_node_snapshot_failure_is_swallowed():
         _settings_for_persist(mock_settings)
         bm = MockBM.return_value
         bm.write_artifact = AsyncMock(side_effect=RuntimeError("GitLab 500"))
-        result = nodes.analyze_node(_base_state(iteration=0))
+        result = await nodes.analyze_node(_base_state(iteration=0))
 
     # Intermediate write failed, but the node still produced its normal output.
     assert result["iteration"] == 1
     assert result["status"] == "reviewing"
 
 
-def test_analyze_node_increments_iteration():
+async def test_analyze_node_increments_iteration():
     fake_output = json.dumps({
         "problem_statement": "Fix login",
         "acceptance_criteria": ["User can log in"],
@@ -215,8 +215,8 @@ def test_analyze_node_increments_iteration():
     analysis = AnalysisOutput.model_validate_json(fake_output)
 
     with patch("src.pipeline.nodes.run_claude_analysis", return_value=analysis) as mock_run, \
-            patch("src.pipeline.nodes._persist_analysis_snapshot"):
-        result = nodes.analyze_node(_base_state())
+            patch("src.pipeline.nodes._persist_analysis_snapshot", new_callable=AsyncMock):
+        result = await nodes.analyze_node(_base_state())
 
     mock_run.assert_called_once()
     assert result["iteration"] == 1
@@ -224,7 +224,7 @@ def test_analyze_node_increments_iteration():
     assert "problem_statement" in result["current_analysis"]
 
 
-def test_review_node_sets_approved_and_appends_history():
+async def test_review_node_sets_approved_and_appends_history():
     from src.models.review import ReviewResult
     mock_result = ReviewResult(
         approved=True, feedback="Great", quality_score=9,
@@ -237,8 +237,8 @@ def test_review_node_sets_approved_and_appends_history():
     )
 
     with patch("src.pipeline.nodes.run_codex_review", return_value=mock_result), \
-            patch("src.pipeline.nodes._persist_review_snapshot"):
-        result = nodes.review_node(state)
+            patch("src.pipeline.nodes._persist_review_snapshot", new_callable=AsyncMock):
+        result = await nodes.review_node(state)
 
     assert result["approved"] is True
     assert len(result["analysis_history"]) == 1
