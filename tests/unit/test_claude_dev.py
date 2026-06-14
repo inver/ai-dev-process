@@ -1,8 +1,11 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.models.mr_review import DeveloperOutput
 from src.pipeline.claude_dev import DEVELOPER_ALLOWED_TOOLS, run_claude_dev
+from src.pipeline.claude_code import ClaudeCodeError
 
 
 def _make_payload(dev_output: dict) -> str:
@@ -52,7 +55,7 @@ def test_run_claude_dev_uses_configured_max_turns():
         run_claude_dev("system", "user", repo_dir="/tmp/repo")
     command = mock_run.call_args.args[0]
     max_turns_index = command.index("--max-turns")
-    assert command[max_turns_index + 1] == "60"
+    assert command[max_turns_index + 1] == "100"
 
 
 def test_run_claude_dev_uses_developer_timeout():
@@ -68,3 +71,15 @@ def test_run_claude_dev_uses_developer_timeout():
     with patch("subprocess.run", return_value=mock_proc) as mock_run:
         run_claude_dev("system", "user", repo_dir="/tmp/repo")
     assert mock_run.call_args.kwargs["timeout"] == 1800
+
+
+def test_run_claude_dev_nonzero_exit_includes_full_output():
+    sentinel = "FULL_OUTPUT_SENTINEL"
+    stdout = "x" * 1200 + sentinel
+    mock_proc = MagicMock(returncode=1, stdout=stdout, stderr="")
+
+    with patch("subprocess.run", return_value=mock_proc):
+        with pytest.raises(ClaudeCodeError) as exc_info:
+            run_claude_dev("system", "user", repo_dir="/tmp/repo")
+
+    assert sentinel in str(exc_info.value)

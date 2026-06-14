@@ -30,6 +30,15 @@ class CodexError(RuntimeError):
     """Raised when the Codex CLI fails or returns unusable output."""
 
 
+def _format_process_output(stdout: str | None, stderr: str | None) -> str:
+    """Format captured process output without truncating diagnostics."""
+    stdout = stdout or ""
+    stderr = stderr or ""
+    if stdout and stderr:
+        return f"stdout:\n{stdout}\nstderr:\n{stderr}"
+    return stdout or stderr
+
+
 def _extract_json(text: str) -> str:
     """Pull a JSON object out of the model's text, tolerating ``` fences or prose."""
     text = text.strip()
@@ -137,13 +146,13 @@ def run_codex_review(system_prompt: str, user_prompt: str, settings=None) -> Rev
         )
 
         if proc.returncode != 0:
+            detail = _format_process_output(proc.stdout, proc.stderr)
             logger.error(
                 "Codex exited %s; stdout: %s; stderr: %s",
                 proc.returncode,
-                (proc.stdout or "")[:1000],
-                (proc.stderr or "")[:1000],
+                proc.stdout or "",
+                proc.stderr or "",
             )
-            detail = (proc.stdout or proc.stderr or "")[:500]
             raise CodexError(f"Codex exited {proc.returncode}: {detail}")
 
         try:
@@ -157,10 +166,10 @@ def run_codex_review(system_prompt: str, user_prompt: str, settings=None) -> Rev
             review = ReviewResult.model_validate_json(json_text)
         except Exception as exc:
             logger.error(
-                "Codex output did not match ReviewResult schema: %s", json_text[:1000],
+                "Codex output did not match ReviewResult schema: %s", json_text,
             )
             raise CodexError(
-                f"Codex output did not match ReviewResult schema: {json_text[:500]}"
+                f"Codex output did not match ReviewResult schema: {json_text}"
             ) from exc
 
         logger.info(

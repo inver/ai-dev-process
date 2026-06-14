@@ -8,7 +8,11 @@ import time
 
 from src.config import get_settings
 from src.models.mr_review import DeveloperOutput
-from src.pipeline.claude_code import ClaudeCodeError, _extract_json
+from src.pipeline.claude_code import (
+    ClaudeCodeError,
+    _extract_json,
+    _format_process_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +80,13 @@ def run_claude_dev(
         time.monotonic() - started,
     )
     if proc.returncode != 0:
-        detail = (proc.stdout or proc.stderr or "")[:500]
+        detail = _format_process_output(proc.stdout, proc.stderr)
         raise ClaudeCodeError(f"Claude Code developer exited {proc.returncode}: {detail}")
 
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise ClaudeCodeError(f"Could not parse developer output: {proc.stdout[:500]}") from exc
+        raise ClaudeCodeError(f"Could not parse developer output: {proc.stdout}") from exc
 
     logger.info(
         "Claude Code developer metadata: turns=%s cost=%s",
@@ -91,7 +95,7 @@ def run_claude_dev(
     )
     if payload.get("is_error"):
         raise ClaudeCodeError(
-            f"Claude Code developer error: {str(payload.get('result', ''))[:500]}"
+            f"Claude Code developer error: {str(payload.get('result', ''))}"
         )
 
     json_text = _extract_json(payload.get("result", ""))
@@ -99,5 +103,5 @@ def run_claude_dev(
         return DeveloperOutput.model_validate_json(json_text)
     except Exception as exc:
         raise ClaudeCodeError(
-            f"Developer output did not match DeveloperOutput schema: {json_text[:500]}"
+            f"Developer output did not match DeveloperOutput schema: {json_text}"
         ) from exc

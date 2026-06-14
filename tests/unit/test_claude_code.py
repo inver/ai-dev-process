@@ -64,6 +64,18 @@ def test_run_claude_analysis_raises_on_nonzero_exit():
             run_claude_analysis("SYS", "USER", settings=_settings())
 
 
+def test_run_claude_analysis_nonzero_exit_includes_full_output():
+    sentinel = "FULL_OUTPUT_SENTINEL"
+    stdout = "x" * 1200 + sentinel
+    with patch("src.pipeline.claude_code.subprocess.run",
+               return_value=_mock_run(returncode=1, stdout=stdout, stderr="err")):
+        with pytest.raises(ClaudeCodeError) as exc_info:
+            run_claude_analysis("SYS", "USER", settings=_settings())
+
+    assert sentinel in str(exc_info.value)
+    assert "stderr:\nerr" in str(exc_info.value)
+
+
 def test_run_claude_analysis_raises_on_cli_error_payload():
     cli_output = json.dumps({"is_error": True, "result": "rate limited"})
     with patch("src.pipeline.claude_code.subprocess.run", return_value=_mock_run(stdout=cli_output)):

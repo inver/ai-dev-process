@@ -9,7 +9,7 @@ import time
 
 from src.config import get_settings
 from src.models.plan import PlanReviewResult
-from src.pipeline.codex import CodexError, _extract_json
+from src.pipeline.codex import CodexError, _extract_json, _format_process_output
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def run_codex_plan_review(
             time.monotonic() - started,
         )
         if proc.returncode != 0:
-            detail = (proc.stdout or proc.stderr or "")[:500]
+            detail = _format_process_output(proc.stdout, proc.stderr)
             raise CodexError(f"Codex plan reviewer exited {proc.returncode}: {detail}")
 
         try:
@@ -99,7 +99,7 @@ def run_codex_plan_review(
             return PlanReviewResult.model_validate_json(json_text)
         except Exception as exc:
             raise CodexError(
-                f"Codex plan review did not match PlanReviewResult schema: {json_text[:500]}"
+                f"Codex plan review did not match PlanReviewResult schema: {json_text}"
             ) from exc
     finally:
         try:

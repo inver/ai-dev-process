@@ -27,6 +27,15 @@ class ClaudeCodeError(RuntimeError):
     """Raised when the Claude Code CLI fails or returns unusable output."""
 
 
+def _format_process_output(stdout: str | None, stderr: str | None) -> str:
+    """Format captured process output without truncating diagnostics."""
+    stdout = stdout or ""
+    stderr = stderr or ""
+    if stdout and stderr:
+        return f"stdout:\n{stdout}\nstderr:\n{stderr}"
+    return stdout or stderr
+
+
 def _extract_json(text: str) -> str:
     """Pull a JSON object out of the model's final text, tolerating ``` fences
     or surrounding prose."""
@@ -114,23 +123,23 @@ def run_claude_analysis(system_prompt: str, user_prompt: str, settings=None) -> 
     )
 
     if proc.returncode != 0:
+        detail = _format_process_output(proc.stdout, proc.stderr)
         logger.error(
             "Claude Code exited %s; stdout: %s; stderr: %s",
             proc.returncode,
-            (proc.stdout or "")[:1000],
-            (proc.stderr or "")[:1000],
+            proc.stdout or "",
+            proc.stderr or "",
         )
-        detail = (proc.stdout or proc.stderr or "")[:500]
         raise ClaudeCodeError(f"Claude Code exited {proc.returncode}: {detail}")
 
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         logger.error(
-            "Could not parse Claude Code JSON output: %s", proc.stdout[:1000],
+            "Could not parse Claude Code JSON output: %s", proc.stdout,
         )
         raise ClaudeCodeError(
-            f"Could not parse Claude Code JSON output: {proc.stdout[:500]}"
+            f"Could not parse Claude Code JSON output: {proc.stdout}"
         ) from exc
 
     # The CLI's JSON envelope carries useful run metadata; surface it for cost
@@ -146,10 +155,10 @@ def run_claude_analysis(system_prompt: str, user_prompt: str, settings=None) -> 
     if payload.get("is_error"):
         logger.error(
             "Claude Code reported an error: %s",
-            str(payload.get("result", ""))[:1000],
+            str(payload.get("result", "")),
         )
         raise ClaudeCodeError(
-            f"Claude Code reported an error: {str(payload.get('result', ''))[:500]}"
+            f"Claude Code reported an error: {str(payload.get('result', ''))}"
         )
 
     result_text = payload.get("result", "")
@@ -159,10 +168,10 @@ def run_claude_analysis(system_prompt: str, user_prompt: str, settings=None) -> 
     except Exception as exc:
         logger.error(
             "Claude Code output did not match AnalysisOutput schema: %s",
-            json_text[:1000],
+            json_text,
         )
         raise ClaudeCodeError(
-            f"Claude Code output did not match AnalysisOutput schema: {json_text[:500]}"
+            f"Claude Code output did not match AnalysisOutput schema: {json_text}"
         ) from exc
 
     logger.info(

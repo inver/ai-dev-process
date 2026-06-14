@@ -8,7 +8,11 @@ import time
 
 from src.config import get_settings
 from src.models.plan import PlanOutput
-from src.pipeline.claude_code import ClaudeCodeError, _extract_json
+from src.pipeline.claude_code import (
+    ClaudeCodeError,
+    _extract_json,
+    _format_process_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +75,14 @@ def run_claude_plan(system_prompt: str, user_prompt: str, settings=None) -> Plan
         time.monotonic() - started,
     )
     if proc.returncode != 0:
-        detail = (proc.stdout or proc.stderr or "")[:500]
+        detail = _format_process_output(proc.stdout, proc.stderr)
         raise ClaudeCodeError(f"Claude Code planner exited {proc.returncode}: {detail}")
 
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise ClaudeCodeError(
-            f"Could not parse Claude Code planner output: {proc.stdout[:500]}"
+            f"Could not parse Claude Code planner output: {proc.stdout}"
         ) from exc
 
     logger.info(
@@ -88,7 +92,7 @@ def run_claude_plan(system_prompt: str, user_prompt: str, settings=None) -> Plan
     )
     if payload.get("is_error"):
         raise ClaudeCodeError(
-            f"Claude Code planner error: {str(payload.get('result', ''))[:500]}"
+            f"Claude Code planner error: {str(payload.get('result', ''))}"
         )
 
     json_text = _extract_json(payload.get("result", ""))
@@ -96,5 +100,5 @@ def run_claude_plan(system_prompt: str, user_prompt: str, settings=None) -> Plan
         return PlanOutput.model_validate_json(json_text)
     except Exception as exc:
         raise ClaudeCodeError(
-            f"Planner output did not match PlanOutput schema: {json_text[:500]}"
+            f"Planner output did not match PlanOutput schema: {json_text}"
         ) from exc
