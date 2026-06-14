@@ -17,6 +17,7 @@ jobs:
       group: analyze-issue-${{ github.event.issue.number }}
       cancel-in-progress: false
     permissions:
+      pull-requests: write
       issues: write
       contents: write
       packages: read
