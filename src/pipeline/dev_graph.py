@@ -1,7 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 
 from src.models.mr_review import DevelopmentState
-from src.pipeline.dev_edges import route_after_mr_review
+from src.pipeline.dev_edges import route_after_develop, route_after_mr_review
 from src.pipeline.dev_nodes import (
     develop_node,
     finalize_node,
@@ -24,7 +24,11 @@ def build_dev_graph() -> StateGraph:
 
     builder.add_edge(START, "gather_context")
     builder.add_edge("gather_context", "develop")
-    builder.add_edge("develop", "review_mr")
+    builder.add_conditional_edges(
+        "develop",
+        route_after_develop,
+        {"review_mr": "review_mr", "failed": "handle_failure"},
+    )
     builder.add_edge("revise", "review_mr")
     builder.add_conditional_edges(
         "review_mr",

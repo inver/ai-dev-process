@@ -1,6 +1,12 @@
 from datetime import datetime, timezone
 
 
+def route_after_develop(state: dict) -> str:
+    if state.get("status") == "failed":
+        return "failed"
+    return "review_mr"
+
+
 def route_after_mr_review(state: dict) -> str:
     if state.get("approved"):
         return "finalize"

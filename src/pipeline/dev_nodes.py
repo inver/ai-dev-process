@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shutil
@@ -84,14 +85,14 @@ def _clone_repo(settings, dev_branch: str, existing_branch: bool = False) -> str
     return tmp_dir
 
 
-def _commit_and_push(repo_dir: str, dev_branch: str, issue_iid: int) -> None:
+def _commit_and_push(repo_dir: str, dev_branch: str, issue_iid: int) -> bool:
     _run_git(["git", "-C", repo_dir, "add", "-A"])
     result = _run_git(
         ["git", "-C", repo_dir, "diff", "--cached", "--name-only"],
     )
     if not result.stdout.strip():
         logger.warning("No changes to commit for issue #%s", issue_iid)
-        return
+        return False
     _run_git(
         ["git", "-C", repo_dir, "commit", "-m", f"develop: implement #{issue_iid}"],
     )
@@ -99,6 +100,16 @@ def _commit_and_push(repo_dir: str, dev_branch: str, issue_iid: int) -> None:
         ["git", "-C", repo_dir, "push", "-u", "origin", dev_branch],
     )
     logger.info("Committed and pushed branch %s for issue #%s", dev_branch, issue_iid)
+    return True
+
+
+async def _wait_for_branch(client, branch_name: str, attempts: int = 5, delay: float = 1.0) -> bool:
+    for attempt in range(1, attempts + 1):
+        if await client.branch_exists(branch_name):
+            return True
+        if attempt < attempts:
+            await asyncio.sleep(delay)
+    return False
 
 
 async def _load_artifact(state: DevelopmentState, path: str) -> str:
@@ -172,12 +183,40 @@ async def develop_node(state: DevelopmentState) -> dict:
         result: DeveloperOutput = run_claude_dev(
             DEVELOPER_SYSTEM, prompt, repo_dir=repo_dir, settings=settings
         )
-        _commit_and_push(repo_dir, dev_branch, issue_iid)
+        pushed = _commit_and_push(repo_dir, dev_branch, issue_iid)
     finally:
         if repo_dir and os.path.exists(repo_dir):
             shutil.rmtree(repo_dir, ignore_errors=True)
 
     client = build_forge_client(settings)
+    if not pushed:
+        reason = (
+            f"Developer step produced no git changes for issue #{issue_iid}; "
+            "no pull request was created."
+        )
+        logger.error(reason)
+        return {
+            "iteration": state["iteration"] + 1,
+            "iteration_start_time": datetime.now(timezone.utc).isoformat(),
+            "implementation_summary": result.model_dump_json(),
+            "failure_reason": reason,
+            "status": "failed",
+        }
+
+    if not await _wait_for_branch(client, dev_branch):
+        reason = (
+            f"Pushed branch {dev_branch!r} was not visible through the forge API; "
+            "no pull request was created."
+        )
+        logger.error(reason)
+        return {
+            "iteration": state["iteration"] + 1,
+            "iteration_start_time": datetime.now(timezone.utc).isoformat(),
+            "implementation_summary": result.model_dump_json(),
+            "failure_reason": reason,
+            "status": "failed",
+        }
+
     mr = await client.create_merge_request(
         source_branch=dev_branch,
         target_branch="main",
