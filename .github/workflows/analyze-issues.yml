@@ -21,7 +21,6 @@ jobs:
       issues: write
       contents: write
       packages: read
-      workflows: write
 
     steps:
       - name: Validate required secrets
@@ -49,7 +48,7 @@ jobs:
       - name: Run issue analysis
         env:
           PLATFORM: github
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PAT}}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           ISSUE_ID: ${{ github.event.issue.number }}
