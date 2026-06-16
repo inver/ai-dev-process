@@ -1,0 +1,52 @@
+# Analysis: Добавь создание e2e тестов в этап develop
+
+**Issue:** #4 | **Complexity:** medium | **Iterations:** 1
+
+## Problem Statement
+The develop stage (dev_graph.py / dev_nodes.py) currently delegates code implementation to Claude Code (run_claude_dev) but never instructs it to create end-to-end (e2e) tests. The developer_system.md prompt only asks for unit-level tests run alongside implementation. As a result, no e2e test files are produced or committed to the develop/<issue_id> branch, leaving integration behaviour unverified before the MR is opened.
+
+## Acceptance Criteria
+- [ ] After develop_node completes, at least one e2e test file (e.g. tests/e2e/test_<feature>.py) is committed to the develop/<issue_id> branch.
+- [ ] The DEVELOPER_SYSTEM prompt explicitly instructs Claude Code to write e2e tests that exercise the feature end-to-end (not just unit-level mocks).
+- [ ] DeveloperOutput model exposes e2e_tests_created: list[str] field listing new e2e test file paths.
+- [ ] The MR description includes an 'E2E Tests' section summarising what scenarios are covered.
+- [ ] MR reviewer (mr_reviewer_system.md) checks for presence and adequacy of e2e tests as a blocking criterion.
+- [ ] revise_node passes e2e test failures back to Claude Code in the revision prompt.
+- [ ] Existing unit test suite continues to pass (no regressions in src/pipeline/dev_nodes.py logic).
+
+## Technical Approach
+1. 1. Extend DeveloperOutput model (src/models/mr_review.py) with a new field: e2e_tests_created: list[str] = Field(default_factory=list).
+2. 2. Update prompts/developer_system.md: add a Step 5a — 'After implementing, write e2e tests in tests/e2e/ that exercise the feature through its public interface or CLI entry point. Run them with pytest and fix failures before outputting the JSON.'
+3. 3. Update prompts/developer_initial.md: add an explicit instruction after 'Work through the plan tasks in order' — 'Include at least one e2e test in tests/e2e/ covering the golden path described in the plan.'
+4. 4. Update the JSON output schema in developer_system.md to include the new e2e_tests_created field.
+5. 5. Update prompts/developer_revision.md: append a section 'E2E Test Failures' (formatted from review feedback) so that Claude Code also fixes broken e2e tests during revision cycles.
+6. 6. Update prompts/mr_reviewer_system.md: add criterion '6. E2E coverage: are e2e tests present and do they cover the acceptance criteria?' and make absence of e2e tests a blocking_issue.
+7. 7. Update dev_nodes.py:develop_node — append the e2e_tests_created list to the MR description under a '## E2E Tests' heading.
+8. 8. Update dev_nodes.py:revise_node — pass e2e-related blocking_issues from MRReviewResult into DEVELOPER_REVISION prompt.
+9. 9. (Optional) Add a post-develop hook in develop_node that runs pytest tests/e2e/ inside repo_dir via subprocess to surface failures before creating the MR, short-circuiting if they fail.
+
+## Dependencies
+- prompts/developer_system.md — must be updated to mandate e2e test creation
+- prompts/developer_initial.md — must be updated with e2e instructions
+- prompts/developer_revision.md — must propagate e2e failures
+- prompts/mr_reviewer_system.md — must grade e2e coverage
+- src/models/mr_review.py:DeveloperOutput — new e2e_tests_created field
+- src/pipeline/dev_nodes.py — consume new field, update MR description
+- pytest (already present via pyproject.toml) — used to run e2e tests inside cloned repo
+- Target project's test layout must have or accept a tests/e2e/ directory
+
+## Risks
+- **HIGH**: e2e tests may require running services (DB, API, etc.) not available inside the ephemeral temp clone directory, causing pytest to fail and blocking MR creation. — *Instruct Claude Code in developer_system.md to skip or mock external services in e2e tests when no live environment is available, using pytest marks (e.g. @pytest.mark.e2e) and a conftest.py fixture pattern.*
+- **MEDIUM**: Claude Code may place e2e tests in arbitrary locations rather than tests/e2e/, making them hard to locate or run consistently. — *The developer_system.md prompt should prescribe the exact directory (tests/e2e/) and a naming convention (test_<feature>_e2e.py).*
+- **MEDIUM**: Adding a mandatory e2e step increases per-iteration wall-clock time (Claude Code turns + pytest run), potentially exceeding developer_timeout_seconds (currently 1800s in config.py). — *Raise developer_timeout_seconds to 2700s as a new default in config.py, and expose it as a CI/CD variable so teams can tune it.*
+- **LOW**: DeveloperOutput schema change breaks backward-compatibility with existing callers that parse the JSON output (e.g. test_claude_dev.py fixture in src/tests/). — *Use Field(default_factory=list) with a default so old JSON without the field deserialises correctly; update fixture JSONs.*
+
+## Open Questions
+- Should e2e tests be run inside develop_node before MR creation (fast-fail) or only validated by the MR reviewer reading the diff? Fast-fail is safer but adds latency.
+- What constitutes an 'e2e test' in this project's context — full subprocess invocation of the pipeline, or integration tests hitting a real GitLab/GitHub sandbox?
+- Should the absence of e2e tests be a hard blocking_issue in mr_reviewer_system.md, or only a concern that the reviewer can override with a high quality_score?
+- Is there a shared test infrastructure (conftest.py, fixtures, docker-compose for services) that Claude Code should be made aware of via the file_tree context?
+- Should the e2e_tests_created field be surfaced in the finalize_node comment posted to the issue so stakeholders can see what was tested?
+
+---
+*Analyzed by `claude-sonnet-4-6` · Reviewed by `gpt-5.5`*
